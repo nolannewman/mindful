@@ -24,6 +24,7 @@ export type VideoListItem = {
   title: string;
   provider_id: string;
   is_public: boolean;
+  pro: boolean;              // <— NEW
   created_at: string;
   // Optional/derived fields
   thumbnail_url?: string | null;
@@ -36,6 +37,7 @@ export type Video = {
   description: string | null;
   provider_id: string;
   is_public: boolean;
+  pro: boolean;              // <— NEW
   created_at: string;
   // Optional extras
   topic_slug?: string | null;
@@ -43,6 +45,14 @@ export type Video = {
   duration_sec?: number | null;
   playback_url?: string | null;
 };
+
+/** Normalize topic param so "all", "", "null", "undefined" behave as no filter */
+function normTopic(t?: string | null): string | undefined {
+  if (!t) return undefined;
+  const v = t.trim().toLowerCase();
+  if (!v || v === 'all' || v === 'null' || v === 'undefined') return undefined;
+  return t;
+}
 
 /**
  * List all topics ordered by name.
@@ -65,8 +75,10 @@ export async function listTopics(): Promise<Topic[]> {
  * Returns [] on error/empty.
  */
 export async function listProviders(topicSlug?: string): Promise<Provider[]> {
+  const topic = normTopic(topicSlug);
+
   // No topic filter → list all providers
-  if (!topicSlug) {
+  if (!topic) {
     const { data, error } = await supabase
       .from('providers')
       .select('id, name, calendly_url')
@@ -80,7 +92,7 @@ export async function listProviders(topicSlug?: string): Promise<Provider[]> {
   const { data: topicRow, error: topicErr } = await supabase
     .from('topics')
     .select('id')
-    .eq('slug', topicSlug)
+    .eq('slug', topic)
     .single();
 
   if (topicErr || !topicRow) return [];
@@ -94,7 +106,7 @@ export async function listProviders(topicSlug?: string): Promise<Provider[]> {
   if (tagErr || !tagRows || tagRows.length === 0) return [];
 
   const providerIds = Array.from(
-    new Set(tagRows.map(r => r.provider_id).filter(Boolean))
+    new Set(tagRows.map((r) => r.provider_id).filter(Boolean))
   ) as string[];
 
   if (providerIds.length === 0) return [];
@@ -112,7 +124,7 @@ export async function listProviders(topicSlug?: string): Promise<Provider[]> {
 
 /**
  * List videos with optional topic/provider filters.
- * Defaults to only public videos.
+ * Uses the deduped view `videos_flat` in all cases and returns public by default.
  * Returns [] on error/empty.
  */
 export async function listVideos(params: {
@@ -120,36 +132,26 @@ export async function listVideos(params: {
   providerId?: string;
   onlyPublic?: boolean;
 } = {}): Promise<VideoListItem[]> {
-  const { topic, providerId, onlyPublic = true } = params;
+  const topic = normTopic(params.topic);
+  const { providerId } = params;
+  const onlyPublic = params.onlyPublic ?? true;
 
-  // Topic filter → use flattened view that already exposes created_at + is_public
-  if (topic) {
-    let query = supabase
-      .from('videos_flat')
-      .select('id, title, provider_id, created_at, is_public, topic_slug')
-      .eq('topic_slug', topic)
-      .order('title', { ascending: true });
-
-    if (onlyPublic) query = query.eq('is_public', true);
-    if (providerId) query = query.eq('provider_id', providerId);
-
-    const { data, error } = await query;
-    if (error || !data) return [];
-    return data as unknown as VideoListItem[];
-  }
-
-  // No topic filter → query base table, alias published → is_public
-  let base = supabase
-    .from('videos')
-    .select('id, title, provider_id, created_at, published:is_public')
+  let q = supabase
+    .from('videos_flat')
+    .select('id, title, provider_id, created_at, is_public, pro, topic_slug')
     .order('title', { ascending: true });
 
-  if (onlyPublic) base = base.eq('published', true);
-  if (providerId) base = base.eq('provider_id', providerId);
+  if (topic) q = q.eq('topic_slug', topic);
+  if (onlyPublic) q = q.eq('is_public', true);
+  if (providerId) q = q.eq('provider_id', providerId);
 
-  const { data, error } = await base;
+  const { data, error } = await q;
   if (error || !data) return [];
-  return data as unknown as VideoListItem[];
+  // The view is DISTINCT; if you still want belt-and-suspenders de-dupe:
+  const seen = new Set<string>();
+  return (data as unknown as VideoListItem[]).filter(r =>
+    seen.has(r.id) ? false : (seen.add(r.id), true)
+  );
 }
 
 /**
@@ -159,48 +161,62 @@ export async function listVideos(params: {
 export async function getVideo(id: string): Promise<Video | null> {
   if (!id) return null;
 
-  // Prefer the base table for full payload; alias published → is_public.
-  // duration_seconds maps onto optional duration_sec at call sites as needed.
-  const { data, error } = await supabase
-    .from('videos')
-    .select(`
-      id,
-      title,
-      description,
-      provider_id,
-      created_at,
-      published:is_public,
-      media_provider,
-      embed_id,
-      storage_path,
-      duration_seconds
-    `)
-    .eq('id', id)
-    .single();
-
-  if (error || !data) return null;
-
-  // Optionally project duration_seconds → duration_sec for convenience
-  const v = data as unknown as {
+  // Shape returned by videos_flat (typed; no `any`)
+  type FlatRow = {
     id: string;
-    title: string;
+    title: string | null;
     description: string | null;
-    provider_id: string;
+    provider_id: string | number;
     created_at: string;
-    is_public: boolean;
+    is_public: boolean | null;
+    pro: boolean | null;
+    media_provider?: 'YOUTUBE' | 'VIMEO' | 'FILE' | 'AUDIO';
+    embed_id?: string | null;
+    storage_path?: string | null;
     duration_seconds?: number | null;
+    topic_slug?: string | null;
   };
 
-  const projected: Video = {
-    id: v.id,
-    title: v.title,
-    description: v.description,
-    provider_id: v.provider_id,
-    is_public: (v).is_public,
-    created_at: v.created_at,
-    duration_sec: v.duration_seconds ?? null,
-    // topic_slug/thumbnail_url/playback_url are optional and can be filled by UI adapters if needed.
+  const { data, error } = await supabase
+    .from('videos_flat')
+    .select<
+      'id, title, description, provider_id, created_at, is_public, pro, media_provider, embed_id, storage_path, duration_seconds, topic_slug'
+    >()
+    .eq('id', id)
+    .limit(1);
+
+  if (error) return null;
+
+  const rows = (data ?? []) as FlatRow[];
+  const row = rows[0];
+  if (!row) return null;
+
+  // Build the object your watch page expects (and our Video type tolerates)
+  const result: Video = {
+    id: row.id,
+    title: row.title ?? 'Untitled',
+    description: row.description,
+    provider_id: String(row.provider_id),
+    is_public: !!row.is_public,
+    pro: !!row.pro,
+    created_at: row.created_at,
+    duration_sec: row.duration_seconds ?? null,
+
+    // optional passthroughs for the watch page
+    // (keep as extra props; your Video type allows optionals)
+    // @ts-expect-error keep extra fields for consumer pages
+    media_provider: row.media_provider,
+    
+    embed_id: row.embed_id ?? null,
+   
+    storage_path: row.storage_path ?? null,
+
+    // optional extras left null by default
+    thumbnail_url: null,
+    playback_url: null,
+    topic_slug: row.topic_slug ?? null,
   };
 
-  return projected;
+  return result;
 }
+

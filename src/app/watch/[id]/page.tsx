@@ -9,15 +9,17 @@ import { getSignedUrl } from '@/../lib/storage';
 
 type MediaProvider = 'YOUTUBE' | 'VIMEO' | 'FILE' | 'AUDIO';
 
-type Video = {
+type DbVideo = {
   id: string;
   title: string | null;
   description: string | null;
-  media_provider: MediaProvider;
-  embed_id: string | null;
-  storage_path: string | null;
+  media_provider?: MediaProvider;
+  embed_id?: string | null;
+  storage_path?: string | null;
   provider_id: string | null;
   created_at?: string | null;
+  is_public?: boolean | null;
+  pro?: boolean | null;
 };
 
 type PageProps = {
@@ -26,21 +28,23 @@ type PageProps = {
 
 export default function WatchPage({ params }: PageProps) {
   const { id } = params;
-  const [video, setVideo] = useState<Video | null>(null);
+  const [video, setVideo] = useState<DbVideo | null>(null);
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
-  const [status, setStatus] = useState<'idle' | 'loading' | 'ready' | 'notfound' | 'error'>('idle');
+  const [status, setStatus] =
+    useState<'idle' | 'loading' | 'ready' | 'notfound' | 'error' | 'locked' | 'private'>('idle');
   const [error, setError] = useState<string | null>(null);
 
-  // Build provider-specific embed src
+  // Build provider-specific embed src (no autoplay)
   const embedSrc = useMemo(() => {
     if (!video) return null;
-    if (video.media_provider === 'YOUTUBE' && video.embed_id) {
-      // No autoplay parameter
-      return `https://www.youtube.com/embed/${encodeURIComponent(video.embed_id)}?rel=0`;
+    const idSafe = video.embed_id ? encodeURIComponent(video.embed_id) : null;
+
+    if (video.media_provider === 'YOUTUBE' && idSafe) {
+      // Use privacy-enhanced domain + no autoplay
+      return `https://www.youtube-nocookie.com/embed/${idSafe}?rel=0&modestbranding=1&playsinline=1`;
     }
-    if (video.media_provider === 'VIMEO' && video.embed_id) {
-      // No autoplay parameter
-      return `https://player.vimeo.com/video/${encodeURIComponent(video.embed_id)}`;
+    if (video.media_provider === 'VIMEO' && idSafe) {
+      return `https://player.vimeo.com/video/${idSafe}`;
     }
     return null;
   }, [video]);
@@ -53,12 +57,26 @@ export default function WatchPage({ params }: PageProps) {
         setError(null);
         setSignedUrl(null);
 
-        const v = (await getVideo(id)) as Video | null;
+        const v = (await getVideo(id)) as unknown as DbVideo | null;
 
         if (cancelled) return;
 
         if (!v) {
           setStatus('notfound');
+          return;
+        }
+
+        const pro = Boolean(v.pro);
+        const isPublic = v.is_public !== false;
+
+        if (!isPublic) {
+          setVideo(v);
+          setStatus('private');
+          return;
+        }
+        if (pro) {
+          setVideo(v);
+          setStatus('locked');
           return;
         }
 
@@ -68,7 +86,7 @@ export default function WatchPage({ params }: PageProps) {
           try {
             const url = await getSignedUrl(v.storage_path, 3600);
             if (!cancelled) setSignedUrl(url);
-          } catch (e) {
+          } catch {
             if (!cancelled) {
               setError('Could not generate a secure media URL.');
             }
@@ -76,7 +94,7 @@ export default function WatchPage({ params }: PageProps) {
         }
 
         if (!cancelled) setStatus('ready');
-      } catch (e) {
+      } catch {
         if (!cancelled) {
           setError('Something went wrong loading this video.');
           setStatus('error');
@@ -89,7 +107,9 @@ export default function WatchPage({ params }: PageProps) {
     };
   }, [id]);
 
-  const providerQuery = video?.provider_id ? (`?provider=${encodeURIComponent(video.provider_id)}` as const) : ('' as const);
+  const providerQuery = video?.provider_id
+    ? (`?provider=${encodeURIComponent(video.provider_id)}` as const)
+    : ('' as const);
   const bookHref = (`/book${providerQuery}` as unknown) as Route;
 
   // Loading state
@@ -105,7 +125,7 @@ export default function WatchPage({ params }: PageProps) {
     );
   }
 
-  // Not found state
+  // Not found
   if (status === 'notfound') {
     return (
       <main className="mx-auto max-w-2xl p-6 text-center">
@@ -118,7 +138,44 @@ export default function WatchPage({ params }: PageProps) {
     );
   }
 
-  // Error state
+  // Private/unpublished
+  if (status === 'private') {
+    const title = video?.title ?? 'Untitled';
+    return (
+      <main className="mx-auto max-w-2xl p-6 text-center">
+        <h1 className="mb-2 text-2xl font-semibold">{title}</h1>
+        <p className="mb-6 text-gray-600">This session isn’t publicly available.</p>
+        <Link href="/" className="inline-block rounded border px-4 py-2 text-sm hover:bg-gray-50">← Back to Library</Link>
+      </main>
+    );
+  }
+
+  // Locked (pro)
+  if (status === 'locked') {
+    const title = video?.title ?? 'Pro Session';
+    return (
+      <main className="mx-auto max-w-2xl p-6 text-center">
+        <h1 className="mb-2 text-2xl font-semibold">{title}</h1>
+        <div className="mb-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm">
+          <span aria-hidden>🔒</span> Pro content
+        </div>
+        <p className="mb-6 text-gray-600">
+          This session is available with a subscription. Book a session to learn more or get access.
+        </p>
+        <div className="flex items-center justify-center gap-3">
+          <Link href="/" className="rounded border px-4 py-2 text-sm hover:bg-gray-50">← Back</Link>
+          <Link
+            href={bookHref}
+            className="rounded bg-black px-4 py-2 text-sm text-white hover:opacity-90"
+          >
+            Book session
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
+  // Error
   if (status === 'error') {
     return (
       <main className="mx-auto max-w-2xl p-6 text-center">
@@ -131,7 +188,7 @@ export default function WatchPage({ params }: PageProps) {
     );
   }
 
-  // Ready state
+  // Ready
   const title = video?.title ?? 'Untitled';
   const description = video?.description ?? '';
 
@@ -142,13 +199,13 @@ export default function WatchPage({ params }: PageProps) {
       </header>
 
       <section className="mb-6">
+        {/* FILE (video) */}
         {video?.media_provider === 'FILE' && (
           <div className="w-full">
             {signedUrl ? (
               <video
                 controls
                 playsInline
-                // Important: do not set autoPlay
                 src={signedUrl}
                 className="aspect-video w-full rounded border"
                 aria-label={`Video player for ${title}`}
@@ -159,12 +216,12 @@ export default function WatchPage({ params }: PageProps) {
           </div>
         )}
 
+        {/* AUDIO */}
         {video?.media_provider === 'AUDIO' && (
           <div className="w-full">
             {signedUrl ? (
               <audio
                 controls
-                // Important: do not set autoPlay
                 src={signedUrl}
                 className="w-full"
                 aria-label={`Audio player for ${title}`}
@@ -175,24 +232,22 @@ export default function WatchPage({ params }: PageProps) {
           </div>
         )}
 
+        {/* YOUTUBE / VIMEO */}
         {(video?.media_provider === 'YOUTUBE' || video?.media_provider === 'VIMEO') && embedSrc && (
           <div className="aspect-video w-full overflow-hidden rounded border">
             <iframe
               title={`${title} — ${video.media_provider} player`}
               src={embedSrc}
               loading="lazy"
-              allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              // No autoplay allowance
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
               allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-              // Sandboxed iframe
-              sandbox="allow-scripts allow-same-origin allow-presentation"
+              referrerPolicy="origin-when-cross-origin"
               className="h-full w-full"
             />
           </div>
         )}
 
-        {/* Fallback if media cannot be rendered */}
+        {/* Fallbacks */}
         {!embedSrc &&
           (video?.media_provider === 'YOUTUBE' || video?.media_provider === 'VIMEO') &&
           !video?.embed_id && (

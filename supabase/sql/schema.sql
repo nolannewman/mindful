@@ -1,10 +1,9 @@
 -- =====================================================================
--- Mindful Catalog — Schema (Idempotent)
--- Safe to re-run: creates only if missing; policies guarded.
+-- Sleep Hypnosis Catalog — Schema (Idempotent)
 -- =====================================================================
 
 -- Extensions -----------------------------------------------------------
-create extension if not exists "pgcrypto";  -- gen_random_uuid()
+create extension if not exists "pgcrypto";
 
 -- Enums ---------------------------------------------------------------
 do $$
@@ -39,11 +38,12 @@ create table if not exists public.videos (
   title            text not null,
   description      text,
   media_provider   public.media_provider not null,
-  embed_id         text,
-  storage_path     text,
+  embed_id         text,           -- for YOUTUBE/VIMEO
+  storage_path     text,           -- for FILE/AUDIO
   duration_seconds integer,
   provider_id      bigint references public.providers(id) on delete set null,
   published        boolean not null default true,
+  pro              boolean not null default false,     -- <— paywalled flag
   created_at       timestamptz not null default now()
 );
 
@@ -59,7 +59,6 @@ create table if not exists public.providers_topics (
   primary key (provider_id, topic_id)
 );
 
--- Profiles keyed to auth.users (don’t seed; depends on auth)
 create table if not exists public.users (
   id                 uuid primary key references auth.users(id) on delete cascade,
   display_name       text,
@@ -78,19 +77,19 @@ create table if not exists public.entitlements (
 );
 
 -- Indexes -------------------------------------------------------------
-create index if not exists topics_slug_idx                 on public.topics(slug);
-create index if not exists providers_slug_idx              on public.providers(slug);
-create index if not exists videos_provider_idx             on public.videos(provider_id);
-create index if not exists videos_topics_video_idx         on public.videos_topics(video_id);
-create index if not exists videos_topics_topic_idx         on public.videos_topics(topic_id);
-create index if not exists providers_topics_provider_idx   on public.providers_topics(provider_id);
-create index if not exists providers_topics_topic_idx      on public.providers_topics(topic_id);
-create index if not exists entitlements_user_idx           on public.entitlements(user_id);
+create index if not exists topics_slug_idx                   on public.topics(slug);
+create index if not exists providers_slug_idx                on public.providers(slug);
+create index if not exists videos_provider_idx               on public.videos(provider_id);
+create index if not exists videos_topics_video_idx           on public.videos_topics(video_id);
+create index if not exists videos_topics_topic_idx           on public.videos_topics(topic_id);
+create index if not exists providers_topics_provider_idx     on public.providers_topics(provider_id);
+create index if not exists providers_topics_topic_idx        on public.providers_topics(topic_id);
+create index if not exists entitlements_user_idx             on public.entitlements(user_id);
 
 -- Views ---------------------------------------------------------------
--- (CREATE OR REPLACE is already idempotent)
+-- Deduped flat view for UI querying (safe for "All" and topic filters)
 create or replace view public.videos_flat as
-select
+select distinct
   v.id,
   v.title,
   v.description,
@@ -101,11 +100,13 @@ select
   v.provider_id,
   v.created_at,
   v.published as is_public,
+  v.pro,
   t.slug as topic_slug
 from public.videos v
 left join public.videos_topics vt on vt.video_id = v.id
-left join public.topics t on t.id = vt.topic_id;
+left join public.topics t         on t.id       = vt.topic_id;
 
+-- Optional convenience: providers with aggregated topics
 create or replace view public.provider_with_topics as
 select
   p.*,
@@ -118,127 +119,91 @@ left join public.providers_topics pt on pt.provider_id = p.id
 left join public.topics t on t.id = pt.topic_id
 group by p.id;
 
--- Ensure privileges (idempotent)
+-- Grants for views (idempotent)
 grant select on public.videos_flat, public.provider_with_topics to anon, authenticated;
 
 -- RLS -----------------------------------------------------------------
-alter table public.topics            enable row level security;
-alter table public.providers         enable row level security;
-alter table public.videos            enable row level security;
-alter table public.videos_topics     enable row level security;
-alter table public.providers_topics  enable row level security;
-alter table public.users             enable row level security;
-alter table public.entitlements      enable row level security;
+alter table public.topics           enable row level security;
+alter table public.providers        enable row level security;
+alter table public.videos           enable row level security;
+alter table public.videos_topics    enable row level security;
+alter table public.providers_topics enable row level security;
+alter table public.users            enable row level security;
+alter table public.entitlements     enable row level security;
 
--- Policies (idempotent via DO/EXCEPTION blocks) ----------------------
-
--- Helper: create a policy if it doesn't exist
--- (We detect by name + table; if duplicate, we ignore.)
+-- Policies (idempotent via DO blocks) --------------------------------
 do $$
 begin
+  -- Public read of catalog tables
   begin
     create policy "Public can read topics"
-      on public.topics
-      for select
-      to anon, authenticated
-      using (true);
-  exception when duplicate_object then null;
-  end;
+      on public.topics for select
+      to anon, authenticated using (true);
+  exception when duplicate_object then null; end;
 
   begin
     create policy "Public can read providers"
-      on public.providers
-      for select
-      to anon, authenticated
-      using (true);
-  exception when duplicate_object then null;
-  end;
+      on public.providers for select
+      to anon, authenticated using (true);
+  exception when duplicate_object then null; end;
 
   begin
     create policy "Public can read videos"
-      on public.videos
-      for select
-      to anon, authenticated
-      using (true);
-  exception when duplicate_object then null;
-  end;
+      on public.videos for select
+      to anon, authenticated using (true);
+  exception when duplicate_object then null; end;
 
   begin
     create policy "Public can read videos_topics"
-      on public.videos_topics
-      for select
-      to anon, authenticated
-      using (true);
-  exception when duplicate_object then null;
-  end;
+      on public.videos_topics for select
+      to anon, authenticated using (true);
+  exception when duplicate_object then null; end;
 
   begin
     create policy "Public can read providers_topics"
-      on public.providers_topics
-      for select
-      to anon, authenticated
-      using (true);
-  exception when duplicate_object then null;
-  end;
+      on public.providers_topics for select
+      to anon, authenticated using (true);
+  exception when duplicate_object then null; end;
 
-  -- users (self-serve profile)
+  -- Profile: self-serve
   begin
     create policy "Users can select own profile"
-      on public.users
-      for select
-      to authenticated
+      on public.users for select to authenticated
       using (id = auth.uid());
-  exception when duplicate_object then null;
-  end;
+  exception when duplicate_object then null; end;
 
   begin
     create policy "Users can insert own profile"
-      on public.users
-      for insert
-      to authenticated
+      on public.users for insert to authenticated
       with check (id = auth.uid());
-  exception when duplicate_object then null;
-  end;
+  exception when duplicate_object then null; end;
 
   begin
     create policy "Users can update own profile"
-      on public.users
-      for update
-      to authenticated
-      using (id = auth.uid())
-      with check (id = auth.uid());
-  exception when duplicate_object then null;
-  end;
+      on public.users for update to authenticated
+      using (id = auth.uid()) with check (id = auth.uid());
+  exception when duplicate_object then null; end;
 
-  -- entitlements (owner-only)
+  -- Entitlements: owner-only
   begin
     create policy "Users can read own entitlements"
-      on public.entitlements
-      for select
-      to authenticated
+      on public.entitlements for select to authenticated
       using (user_id = auth.uid());
-  exception when duplicate_object then null;
-  end;
+  exception when duplicate_object then null; end;
 
   begin
     create policy "Users can insert own entitlements"
-      on public.entitlements
-      for insert
-      to authenticated
+      on public.entitlements for insert to authenticated
       with check (user_id = auth.uid());
-  exception when duplicate_object then null;
-  end;
+  exception when duplicate_object then null; end;
 
   begin
     create policy "Users can update own entitlements"
-      on public.entitlements
-      for update
-      to authenticated
-      using (user_id = auth.uid())
-      with check (user_id = auth.uid());
-  exception when duplicate_object then null;
-  end;
+      on public.entitlements for update to authenticated
+      using (user_id = auth.uid()) with check (user_id = auth.uid());
+  exception when duplicate_object then null; end;
 end$$;
 
--- Final grants for base tables (safe if repeated)
-grant select on public.topics, public.providers, public.videos, public.videos_topics, public.providers_topics to anon, authenticated;
+-- Final grants (repeat-safe)
+grant select on public.topics, public.providers, public.videos,
+             public.videos_topics, public.providers_topics to anon, authenticated;

@@ -1,7 +1,7 @@
 // path: app/(public)/page.tsx
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   listTopics,
@@ -9,146 +9,101 @@ import {
   listVideos,
   type Topic,
   type Provider,
-  type VideoListItem as Video,
-} from '@/../lib/catalog';
+  type VideoListItem,
+} from '../../../lib/catalog';
 
-/** Suspense-friendly loading shell shown while search params resolve. */
-function LibraryLoading() {
-  return (
-    <main className="p-6 sm:p-8" aria-busy="true" aria-live="polite">
-      <h1 className="text-2xl font-semibold">Library</h1>
-      <p className="mt-2 text-sm text-foreground/70">
-        Browse videos by topic and provider.
-      </p>
-      <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="border rounded-lg p-4 animate-pulse">
-            <div className="aspect-video w-full rounded bg-foreground/10" />
-            <div className="h-4 mt-3 w-3/4 bg-foreground/10 rounded" />
-            <div className="h-4 mt-2 w-1/2 bg-foreground/10 rounded" />
-          </div>
-        ))}
-      </div>
-    </main>
-  );
-}
-
-/** Small UI chip for topic toggles. */
-function Chip(props: {
-  selected?: boolean;
-  children: React.ReactNode;
-  onClick?: () => void;
-  'aria-label'?: string;
-}) {
-  const { selected, children, onClick } = props;
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onClick}
-      className={[
-        'px-3 py-1.5 rounded-full text-sm border transition',
-        selected
-          ? 'bg-foreground text-background border-foreground'
-          : 'bg-transparent hover:bg-foreground/10 border-foreground/30',
-      ].join(' ')}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** Individual video card with basic placeholder thumbnail. */
-function VideoCard({ video }: { video: Video }) {
-  return (
-    <article
-      className="border rounded-lg p-4 h-full flex flex-col gap-2"
-      aria-labelledby={`video-${video.id}-title`}
-    >
-      <div
-        className="aspect-video w-full rounded bg-foreground/10 overflow-hidden"
-        role="img"
-        aria-label="Video thumbnail"
-      />
-      <h3 id={`video-${video.id}-title`} className="text-base font-medium line-clamp-2">
-        {video.title || 'Untitled video'}
-      </h3>
-      <div className="mt-auto">
-        <a
-          href={`/watch/${video.id}`}
-          className="inline-flex items-center gap-2 text-sm underline underline-offset-4"
-          aria-label={`Watch ${video.title ?? 'video'}`}
-        >
-          Watch <span aria-hidden>→</span>
-        </a>
-      </div>
-    </article>
-  );
-}
-
-/** Hook to read & write URL search params (?topic, ?provider). */
-function useLibraryFilters() {
+function LibraryInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const topic = searchParams.get('topic') || '';
-  const providerId = searchParams.get('provider') || '';
+  // URL → state
+  const topicFromUrl = searchParams.get('topic') || undefined;
+  const providerFromUrl = searchParams.get('provider') || undefined;
 
-  const setParam = (key: string, value?: string) => {
-    const sp = new URLSearchParams(searchParams.toString());
-    if (value && value.length) sp.set(key, value);
-    else sp.delete(key);
-    const qs = sp.toString();
-    // Route group (public) does not appear in URL; the library is '/'.
-    router.replace(qs ? `/?${qs}` : '/');
-  };
+  // Normalize “all/empty” to undefined so we actually show everything
+  const topic = useMemo(() => {
+    if (!topicFromUrl || topicFromUrl === 'all' || topicFromUrl.trim() === '') return undefined;
+    return topicFromUrl;
+  }, [topicFromUrl]);
 
-  return {
-    topic,
-    providerId,
-    setTopic: (v?: string) => setParam('topic', v),
-    setProvider: (v?: string) => setParam('provider', v),
-  };
-}
+  const providerId = useMemo(() => {
+    if (!providerFromUrl || providerFromUrl.trim() === '') return undefined;
+    return providerFromUrl;
+  }, [providerFromUrl]);
 
-/**
- * Inner client component that uses `useSearchParams()`.
- * Must be wrapped by <Suspense> in the default export to satisfy Next.js CSR bailout rules.
- */
-function LibraryPageClient() {
-  const { topic, providerId, setTopic, setProvider } = useLibraryFilters();
-
-  const [topics, setTopics] = useState<Topic[] | null>(null);
-  const [providers, setProviders] = useState<Provider[] | null>(null);
-  const [videos, setVideos] = useState<Video[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // Data
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [videos, setVideos] = useState<VideoListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-  // Fetch whenever filters change
+  // URL setters
+  const setParam = useCallback(
+    (key: string, value?: string) => {
+      const params = new URLSearchParams(Array.from(searchParams.entries()));
+      if (!value) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+      const base = window.location.pathname;
+      const next = params.toString() ? `${base}?${params.toString()}` : base;
+      router.replace(next);
+    },
+    [router, searchParams],
+  );
+
+  const handleSelectTopic = useCallback(
+    (slug?: string) => {
+      // selecting "All" clears both topic & provider
+      if (!slug) {
+        const base = window.location.pathname;
+        router.replace(base);
+        return;
+      }
+      // when changing topic, also clear provider (since provider list will change)
+      const params = new URLSearchParams(Array.from(searchParams.entries()));
+      params.set('topic', slug);
+      params.delete('provider');
+      const base = window.location.pathname;
+      const next = `${base}?${params.toString()}`;
+      router.replace(next);
+    },
+    [router, searchParams],
+  );
+
+  const handleSelectProvider = useCallback(
+    (provId?: string) => setParam('provider', provId),
+    [setParam],
+  );
+
+  const handleClear = useCallback(() => {
+    // Clear BOTH topic and provider and show all public videos
+    const base = window.location.pathname;
+    router.replace(base);
+  }, [router]);
+
+  // Load data whenever filters change
   useEffect(() => {
     let cancelled = false;
     async function run() {
       setLoading(true);
-      setError(null);
+      setErr(null);
       try {
         const [t, p, v] = await Promise.all([
           listTopics(),
-          listProviders(topic || undefined),
-          listVideos({
-            topic: topic || undefined,
-            providerId: providerId || undefined,
-            onlyPublic: true,
-          }),
+          listProviders(topic), // provider list depends on topic
+          listVideos({ topic, providerId, onlyPublic: true }),
         ]);
         if (cancelled) return;
-        setTopics(t ?? []);
-        setProviders(p ?? []);
-        setVideos(v ?? []);
+        setTopics(t);
+        setProviders(p);
+        setVideos(v);
       } catch (e: unknown) {
         if (!cancelled) {
-          const msg =
-            e instanceof Error ? e.message : 'Failed to load library content.';
-          setError(msg);
+          const msg = e instanceof Error ? e.message : 'Failed to load';
+          setErr(msg);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -160,127 +115,135 @@ function LibraryPageClient() {
     };
   }, [topic, providerId]);
 
-  const activeTopicName = useMemo(
-    () => topics?.find((t) => t.slug === topic)?.name ?? null,
-    [topics, topic],
-  );
-
   return (
-    <main className="p-6 sm:p-8">
-      <h1 className="text-2xl font-semibold">Library</h1>
-      <p className="mt-2 text-sm text-foreground/70">
-        Browse videos by topic and provider.
-      </p>
+    <main className="mx-auto max-w-6xl px-4 py-8">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Sleep Hypnosis Library</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => handleSelectTopic(undefined)}
+            className={`rounded-full border px-3 py-1 text-sm ${!topic ? 'bg-gray-900 text-white' : 'hover:bg-gray-100'}`}
+            aria-label="Show all topics"
+          >
+            All Topics
+          </button>
 
-      {/* Filters */}
-      <section className="mt-6 space-y-4" aria-labelledby="filters-title">
-        <h2 id="filters-title" className="sr-only">
-          Filters
-        </h2>
+          {/* Topic chips */}
+          <div className="flex flex-wrap gap-2">
+            {topics.map((t) => {
+              const active = topic === t.slug;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => handleSelectTopic(t.slug)}
+                  className={`rounded-full border px-3 py-1 text-sm ${active ? 'bg-gray-900 text-white' : 'hover:bg-gray-100'}`}
+                  aria-pressed={active}
+                  aria-label={`Filter by ${t.name}`}
+                >
+                  {t.name}
+                </button>
+              );
+            })}
+          </div>
 
-        {/* Topic chips */}
-        <div className="flex flex-wrap gap-2">
-          <Chip selected={!topic} onClick={() => setTopic(undefined)}>
-            All
-          </Chip>
-          {(topics ?? []).map((t) => (
-            <Chip
-              key={t.id}
-              selected={topic === t.slug}
-              onClick={() => setTopic(t.slug)}
-            >
-              {t.name}
-            </Chip>
-          ))}
-        </div>
-
-        {/* Provider select */}
-        <div className="flex items-center gap-3">
-          <label htmlFor="provider" className="text-sm">
-            Provider
+          {/* Provider select */}
+          <label className="sr-only" htmlFor="provider-select">
+            Filter by provider
           </label>
           <select
-            id="provider"
-            name="provider"
-            className="min-w-44 rounded border px-3 py-2 bg-background"
-            value={providerId}
-            onChange={(e) => setProvider(e.target.value || undefined)}
+            id="provider-select"
+            className="rounded-md border px-3 py-2 text-sm"
+            value={providerId ?? ''}
+            onChange={(e) => handleSelectProvider(e.target.value || undefined)}
+            aria-label="Filter by provider"
           >
-            <option value="">All providers</option>
-            {(providers ?? []).map((p) => (
+            <option value="">All Providers</option>
+            {providers.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
           </select>
-          {(providerId || topic) && (
-            <button
-              type="button"
-              className="ml-auto text-sm underline underline-offset-4"
-              onClick={() => {
-                setTopic(undefined);
-                setProvider(undefined);
-              }}
-              aria-label="Clear filters"
-            >
-              Clear filters
-            </button>
-          )}
-        </div>
-      </section>
 
-      {/* Results */}
-      <section className="mt-8" aria-live="polite" aria-busy={loading}>
-        {error && (
-          <div
-            role="alert"
-            className="rounded border border-red-500/40 bg-red-500/5 p-4"
+          <button
+            onClick={handleClear}
+            className="rounded-md border px-3 py-2 text-sm hover:bg-gray-100"
+            aria-label="Clear all filters"
           >
-            <p className="font-medium">Something went wrong.</p>
-            <p className="text-sm mt-1">{error}</p>
-          </div>
-        )}
+            Clear filters
+          </button>
+        </div>
+      </header>
 
-        {loading && !error && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="border rounded-lg p-4 animate-pulse">
-                <div className="aspect-video w-full rounded bg-foreground/10" />
-                <div className="h-4 mt-3 w-3/4 bg-foreground/10 rounded" />
-                <div className="h-4 mt-2 w-1/2 bg-foreground/10 rounded" />
+      {/* States */}
+      {loading && <p className="text-sm text-gray-500">Loading…</p>}
+      {err && <p className="text-sm text-red-600">Error: {err}</p>}
+      {!loading && !err && videos.length === 0 && (
+        <p className="text-sm text-gray-500">
+          No sessions found. Try changing or clearing filters.
+        </p>
+      )}
+
+      {/* Video grid */}
+      <section className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {videos.map((v) => {
+          const disabled = v.pro; // lock if paywalled
+          return (
+            <article key={v.id} className="relative rounded-xl border p-4 shadow-sm">
+              {/* Lock badge */}
+              {v.pro && (
+                <span
+                  className="absolute right-3 top-3 rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                  title="Pro content"
+                >
+                  🔒 Pro
+                </span>
+              )}
+
+              <div className="mb-3">
+                <h2 className="line-clamp-2 text-base font-medium">{v.title}</h2>
+                <p className="mt-1 text-xs text-gray-500">
+                  {new Date(v.created_at).toLocaleDateString()}
+                </p>
               </div>
-            ))}
-          </div>
-        )}
 
-        {!loading && !error && (videos?.length ?? 0) === 0 && (
-          <div className="rounded border p-6 text-sm">
-            No videos found
-            {topic ? ` for “${activeTopicName ?? topic}”` : ''}
-            {providerId ? ' with selected provider' : ''}.
-          </div>
-        )}
+              <div className="mt-auto flex items-center justify-between">
+                {disabled ? (
+                  <button
+                    type="button"
+                    className="cursor-not-allowed text-sm opacity-60"
+                    aria-disabled
+                    title="Available with Pro"
+                  >
+                    Play
+                  </button>
+                ) : (
+                  <a
+                    href={`/watch/${v.id}`}
+                    className="text-sm underline decoration-2 underline-offset-2 hover:opacity-80"
+                  >
+                    Play
+                  </a>
+                )}
 
-        {!loading && !error && (videos?.length ?? 0) > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {videos!.map((v) => (
-              <VideoCard key={v.id} video={v} />
-            ))}
-          </div>
-        )}
+                {!v.is_public && (
+                  <span className="rounded bg-yellow-100 px-2 py-0.5 text-[11px] font-medium text-yellow-800">
+                    Private
+                  </span>
+                )}
+              </div>
+            </article>
+          );
+        })}
       </section>
     </main>
   );
 }
 
-/**
- * Default export: Suspense-wrapped client page.
- * Required when using `useSearchParams()` in App Router.
- */
 export default function LibraryPage() {
   return (
-    <Suspense fallback={<LibraryLoading />}>
-      <LibraryPageClient />
+    <Suspense fallback={<div className="p-4 text-sm text-gray-500">Loading…</div>}>
+      <LibraryInner />
     </Suspense>
   );
 }

@@ -35,7 +35,6 @@ export async function ensureProfile(user: MinimalUser): Promise<
     id: user.id,
     // Only columns that exist in the provided schema:
     display_name: derivedName,
-    // topics_of_interest has a DEFAULT '{}', but including an empty value on upsert is safe.
     topics_of_interest: [] as string[],
   };
 
@@ -66,6 +65,8 @@ export async function getProfile(userId: string): Promise<
   | { ok: true; profile: Profile }
   | { ok: false; error: string }
 > {
+  if (!userId) return { ok: false, error: 'Missing user id' };
+
   const { data, error } = await supabase
     .from('users')
     .select('id, display_name, topics_of_interest')
@@ -76,20 +77,22 @@ export async function getProfile(userId: string): Promise<
     return { ok: false, error: error.message };
   }
 
+  if (!data) {
+    return { ok: false, error: 'Profile not found' };
+  }
+
   return { ok: true, profile: data as Profile };
 }
 
 /**
- * getCurrentEntitlement
- * Reads the user's current/active entitlement from public.entitlements.
- * - Active = expires_at IS NULL (lifetime) OR expires_at > now().
- * - Returns the most relevant active row (NULL expires first, otherwise earliest expiry).
- * - If none, returns plan 'free'.
+ * getSubscription (read-only, convenience)
+ * - Returns current plan and expiration (or defaults to "free").
  */
-export async function getCurrentEntitlement(userId: string): Promise<
+export async function getSubscription(userId: string): Promise<
   | { ok: true; plan: string; expires_at: string | null }
   | { ok: false; error: string }
 > {
+  if (!userId) return { ok: false, error: 'Missing user id' };
   const now = new Date().toISOString();
 
   const { data, error } = await supabase
@@ -115,4 +118,36 @@ export async function getCurrentEntitlement(userId: string): Promise<
     plan: row.plan ?? 'free',
     expires_at: row.expires_at ?? null,
   };
+}
+
+/**
+ * getUserTopics: returns the current user's topics_of_interest (slugs).
+ * Returns [] if not authed or row missing.
+ */
+export async function getUserTopics(): Promise<string[]> {
+  const { data: auth } = await supabase.auth.getUser();
+  const user = auth?.user;
+  if (!user) return [];
+  const { data, error } = await supabase
+    .from('users')
+    .select('topics_of_interest')
+    .eq('id', user.id)
+    .maybeSingle();
+  if (error) return [];
+  const topics = (data?.topics_of_interest ?? []) as unknown as string[];
+  return Array.isArray(topics) ? topics : [];
+}
+
+/**
+ * saveUserTopics: upserts the current user's topics_of_interest.
+ * Requires RLS update/insert on public.users for owner.
+ */
+export async function saveUserTopics(topics: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data: auth } = await supabase.auth.getUser();
+  const user = auth?.user;
+  if (!user) return { ok: false, error: 'Not authenticated' };
+  const payload = { id: user.id, topics_of_interest: topics };
+  const { error } = await supabase.from('users').upsert(payload, { onConflict: 'id' });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
 }

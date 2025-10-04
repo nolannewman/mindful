@@ -2,7 +2,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { ReactNode } from 'react';
-import NavBar from '@/../components/NavBar'; // Re-added global navigation bar
+import NavBar from '@/../components/NavBar'; // Global navigation bar
 
 export const metadata: Metadata = {
   title: 'Sleep Hypnosis Catalog',
@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className="antialiased min-h-screen flex flex-col">
+      <body className="min-h-screen antialiased flex flex-col">
         {/* Accessible skip link */}
         <a
           href="#main"
@@ -24,8 +24,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         {/* Global Nav (appears on every page) */}
         <NavBar />
 
-        {/* Main content */}
-        <main id="main" className="flex-1">
+        {/* Main content (readable width + responsive padding) */}
+        <main id="main" className="flex-1 max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
           {children}
         </main>
       </body>

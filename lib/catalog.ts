@@ -4,7 +4,7 @@
  * Catalog data helpers for topics, providers, and videos (client-side Supabase).
  * Lean selects, minimal return types, graceful empty/error handling.
  */
-import { supabase } from './supabase';
+import { supabase } from './supabase'; // keep as-is to match your current export style
 
 // Minimal types (no `any`).
 export type Topic = {
@@ -25,7 +25,7 @@ export type VideoListItem = {
   provider_id: string;
   is_public: boolean;
   created_at: string;
-  // Optional/derived light fields if present in schema; tolerated if absent at runtime.
+  // Optional/derived fields
   thumbnail_url?: string | null;
   topic_slug?: string | null;
 };
@@ -37,7 +37,7 @@ export type Video = {
   provider_id: string;
   is_public: boolean;
   created_at: string;
-  // Optional extras commonly seen in simple schemas.
+  // Optional extras
   topic_slug?: string | null;
   thumbnail_url?: string | null;
   duration_sec?: number | null;
@@ -55,15 +55,17 @@ export async function listTopics(): Promise<Topic[]> {
     .order('name', { ascending: true });
 
   if (error || !data) return [];
-  return data as Topic[];
+  return data as unknown as Topic[];
 }
 
 /**
- * List providers. If topicSlug is provided, only providers that have videos in that topic.
+ * List providers.
+ * If topicSlug is provided, return providers tagged to that topic (providers_topics),
+ * so providers can be discovered before uploading any videos.
  * Returns [] on error/empty.
  */
 export async function listProviders(topicSlug?: string): Promise<Provider[]> {
-  // Fast path: no filter → single lean select.
+  // No topic filter → list all providers
   if (!topicSlug) {
     const { data, error } = await supabase
       .from('providers')
@@ -71,28 +73,41 @@ export async function listProviders(topicSlug?: string): Promise<Provider[]> {
       .order('name', { ascending: true });
 
     if (error || !data) return [];
-    return data as Provider[];
+    return data as unknown as Provider[];
   }
 
-  // With topic filter → two-step: find distinct provider_ids from videos, then fetch providers.
-  const vids = await supabase
-    .from('videos')
+  // Resolve topic id from slug
+  const { data: topicRow, error: topicErr } = await supabase
+    .from('topics')
+    .select('id')
+    .eq('slug', topicSlug)
+    .single();
+
+  if (topicErr || !topicRow) return [];
+
+  // Get provider ids tagged to this topic
+  const { data: tagRows, error: tagErr } = await supabase
+    .from('providers_topics')
     .select('provider_id')
-    .eq('topic_slug', topicSlug);
+    .eq('topic_id', topicRow.id);
 
-  if (vids.error || !vids.data || vids.data.length === 0) return [];
+  if (tagErr || !tagRows || tagRows.length === 0) return [];
 
-  const ids = Array.from(new Set(vids.data.map((v: { provider_id: string }) => v.provider_id))).filter(Boolean);
-  if (ids.length === 0) return [];
+  const providerIds = Array.from(
+    new Set(tagRows.map(r => r.provider_id).filter(Boolean))
+  ) as string[];
 
+  if (providerIds.length === 0) return [];
+
+  // Fetch provider records
   const { data, error } = await supabase
     .from('providers')
     .select('id, name, calendly_url')
-    .in('id', ids)
+    .in('id', providerIds)
     .order('name', { ascending: true });
 
   if (error || !data) return [];
-  return data as Provider[];
+  return data as unknown as Provider[];
 }
 
 /**
@@ -107,40 +122,85 @@ export async function listVideos(params: {
 } = {}): Promise<VideoListItem[]> {
   const { topic, providerId, onlyPublic = true } = params;
 
-  let query = supabase
-    .from('videos')
-    .select('id, title, provider_id, is_public, created_at, thumbnail_url, topic_slug')
-    .order('created_at', { ascending: false });
-
-  if (onlyPublic) {
-    query = query.eq('is_public', true);
-  }
+  // Topic filter → use flattened view that already exposes created_at + is_public
   if (topic) {
-    // By convention use `topic_slug`; safe no-op if column absent at runtime.
-    query = query.eq('topic_slug', topic);
-  }
-  if (providerId) {
-    query = query.eq('provider_id', providerId);
+    let query = supabase
+      .from('videos_flat')
+      .select('id, title, provider_id, created_at, is_public, topic_slug')
+      .eq('topic_slug', topic)
+      .order('title', { ascending: true });
+
+    if (onlyPublic) query = query.eq('is_public', true);
+    if (providerId) query = query.eq('provider_id', providerId);
+
+    const { data, error } = await query;
+    if (error || !data) return [];
+    return data as unknown as VideoListItem[];
   }
 
-  const { data, error } = await query;
+  // No topic filter → query base table, alias published → is_public
+  let base = supabase
+    .from('videos')
+    .select('id, title, provider_id, created_at, published:is_public')
+    .order('title', { ascending: true });
+
+  if (onlyPublic) base = base.eq('published', true);
+  if (providerId) base = base.eq('provider_id', providerId);
+
+  const { data, error } = await base;
   if (error || !data) return [];
-  return data as VideoListItem[];
+  return data as unknown as VideoListItem[];
 }
 
 /**
  * Get a single video by id. Returns null on error/not found.
- * Selects all columns to satisfy watch pages that may need full payload.
+ * Selects explicit columns and aliases to match the Video type.
  */
 export async function getVideo(id: string): Promise<Video | null> {
   if (!id) return null;
 
+  // Prefer the base table for full payload; alias published → is_public.
+  // duration_seconds maps onto optional duration_sec at call sites as needed.
   const { data, error } = await supabase
     .from('videos')
-    .select('*')
+    .select(`
+      id,
+      title,
+      description,
+      provider_id,
+      created_at,
+      published:is_public,
+      media_provider,
+      embed_id,
+      storage_path,
+      duration_seconds
+    `)
     .eq('id', id)
     .single();
 
   if (error || !data) return null;
-  return data as Video;
+
+  // Optionally project duration_seconds → duration_sec for convenience
+  const v = data as unknown as {
+    id: string;
+    title: string;
+    description: string | null;
+    provider_id: string;
+    created_at: string;
+    is_public: boolean;
+    duration_seconds?: number | null;
+  };
+
+  const projected: Video = {
+    id: v.id,
+    title: v.title,
+    description: v.description,
+    provider_id: v.provider_id,
+    is_public: (v).is_public,
+    created_at: v.created_at,
+    duration_sec: v.duration_seconds ?? null,
+    // topic_slug/thumbnail_url/playback_url are optional and can be filled by UI adapters if needed.
+  };
+
+  return projected;
 }

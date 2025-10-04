@@ -2,21 +2,36 @@
 /**
  * Centralized environment configuration helper.
  *
- * Automatically detects the base URL for Supabase auth callbacks.
- * - In development, uses http://localhost:3000
- * - In production, uses the deployed Vercel URL or your custom domain.
+ * Uses window.location.origin on the client (live origin),
+ * and env/VERCEL_URL on the server (SSR, route handlers).
  */
+
+function computeSiteUrl(): string {
+  // Client-side: trust the actual page origin
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+
+  // Server-side: use explicit public env, then Vercel URL, then localhost
+  const explicit = process.env.NEXT_PUBLIC_SITE_URL;
+  if (explicit) return explicit;
+
+  const vercel = process.env.VERCEL_URL; // server-only
+  if (vercel) return `https://${vercel}`;
+
+  return 'http://localhost:3000';
+}
 
 export const ENV = {
   SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL!,
   SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   /**
-   * Auth URL used for redirectTo and SSR verification.
-   * Safe to hardcode per environment automatically.
+   * Canonical site URL for redirects/callbacks.
+   * - Client: window.origin
+   * - Server: NEXT_PUBLIC_SITE_URL || https://${VERCEL_URL} || http://localhost:3000
    */
-  AUTH_URL:
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000'),
+  AUTH_URL: computeSiteUrl(),
 };
+
+// Optional: export helper if you prefer call sites to compute lazily
+export const getSiteUrl = computeSiteUrl;

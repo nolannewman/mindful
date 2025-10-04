@@ -11,7 +11,6 @@ type Status = 'working' | 'done' | 'error';
 function sanitizeRedirect(path: string | null | undefined): string {
   if (!path) return '/';
   if (!path.startsWith('/')) return '/';
-  // (Optional) you could disallow segment-group names etc. For now allow any path starting with "/".
   return path;
 }
 
@@ -31,7 +30,21 @@ export default function CallbackClient() {
 
     async function run(): Promise<void> {
       try {
-        // 1) Handle magic-link tokens that arrive via URL hash
+        // 0) Handle provider error returned as ?error=...&error_description=...
+        const oauthError = search.get('error');
+        const oauthDesc =
+          search.get('error_description') || search.get('error_description[]');
+        if (oauthError) {
+          const msg = decodeURIComponent(oauthDesc ?? oauthError);
+          if (!cancelled) {
+            setStatus('error');
+            setMessage(msg || 'Authentication failed.');
+            setTimeout(() => router.replace('/login'), 1500);
+          }
+          return;
+        }
+
+        // 1) Handle magic-link tokens that arrive via URL hash (e.g., #access_token=...)
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
         if (hash && hash.includes('access_token')) {
           const params = new URLSearchParams(hash.slice(1));
@@ -45,7 +58,9 @@ export default function CallbackClient() {
             });
             if (error) throw error;
 
+            // Clean the URL (drop hash)
             window.history.replaceState({}, document.title, '/auth/callback');
+
             if (!cancelled) {
               setStatus('done');
               router.replace(redirectedFrom);
@@ -54,15 +69,20 @@ export default function CallbackClient() {
           }
         }
 
-        // 2) Handle OAuth / OTP code (?code=...)
+        // 2) Handle OAuth / OTP code (?code=...) — PKCE or email OTP (verify)
         const code = search.get('code');
         if (code) {
+          // Use full current URL so Supabase can parse all required params.
+          const currentUrl =
+            typeof window !== 'undefined' ? window.location.href : undefined;
           const { error } = await supabase.auth.exchangeCodeForSession(
-            window.location.href
+            currentUrl as string
           );
           if (error) throw error;
 
+          // Clean querystring to avoid re-processing on back/refresh
           window.history.replaceState({}, document.title, '/auth/callback');
+
           if (!cancelled) {
             setStatus('done');
             router.replace(redirectedFrom);
@@ -96,7 +116,7 @@ export default function CallbackClient() {
 
   return (
     <>
-      <h1 className="text-xl font-semibold mb-2">
+      <h1 className="mb-2 text-xl font-semibold">
         {status === 'working'
           ? 'Completing sign-in…'
           : status === 'done'

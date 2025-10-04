@@ -1,197 +1,244 @@
--- supabase/sql/schema.sql
--- Schema & RLS for topics, providers, videos, videos_topics, users, entitlements
+-- =====================================================================
+-- Mindful Catalog — Schema (Idempotent)
+-- Safe to re-run: creates only if missing; policies guarded.
+-- =====================================================================
 
--- Extensions
-create extension if not exists "pgcrypto";
+-- Extensions -----------------------------------------------------------
+create extension if not exists "pgcrypto";  -- gen_random_uuid()
 
--- =========
--- Types
--- =========
+-- Enums ---------------------------------------------------------------
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'media_provider') then
-    create type media_provider as enum ('YOUTUBE','VIMEO','FILE','AUDIO');
+    create type public.media_provider as enum ('YOUTUBE','VIMEO','FILE','AUDIO');
   end if;
-end $$;
+end$$;
 
--- =========
--- Tables
--- =========
+-- Tables --------------------------------------------------------------
 
--- Public catalog: topics
 create table if not exists public.topics (
-  id uuid primary key default gen_random_uuid(),
-  slug text not null unique,
-  name text not null,
+  id          bigint generated always as identity primary key,
+  slug        text not null unique,
+  name        text not null,
   description text,
-  created_at timestamptz not null default now()
+  created_at  timestamptz not null default now()
 );
 
--- Public catalog: providers (content providers / mentors)
 create table if not exists public.providers (
-  id uuid primary key default gen_random_uuid(),
-  slug text unique,
-  name text not null,
-  description text,
-  calendly_url text, -- optional
-  rate numeric(10,2), -- optional hourly/session rate
-  created_at timestamptz not null default now()
+  id            bigint generated always as identity primary key,
+  slug          text not null unique,
+  name          text not null,
+  description   text,
+  calendly_url  text,
+  rate          numeric(10,2),
+  created_at    timestamptz not null default now()
 );
 
--- Public catalog: videos
 create table if not exists public.videos (
-  id uuid primary key default gen_random_uuid(),
-  title text not null,
-  description text,
-  media_provider media_provider not null, -- enum: YOUTUBE, VIMEO, FILE, AUDIO
-  embed_id text,        -- for YOUTUBE/VIMEO
-  storage_path text,    -- for FILE/AUDIO in Supabase Storage
+  id               uuid primary key default gen_random_uuid(),
+  title            text not null,
+  description      text,
+  media_provider   public.media_provider not null,
+  embed_id         text,
+  storage_path     text,
   duration_seconds integer,
-  provider_id uuid references public.providers(id) on delete set null,
-  published boolean not null default true,
-  created_at timestamptz not null default now(),
-
-  -- Ensure a valid source is present that matches media_provider
-  constraint videos_source_check check (
-    (media_provider in ('YOUTUBE','VIMEO') and embed_id is not null and storage_path is null)
-    or
-    (media_provider in ('FILE','AUDIO') and storage_path is not null and embed_id is null)
-  )
+  provider_id      bigint references public.providers(id) on delete set null,
+  published        boolean not null default true,
+  created_at       timestamptz not null default now()
 );
 
--- Public catalog: videos_topics junction
 create table if not exists public.videos_topics (
-  video_id uuid not null references public.videos(id) on delete cascade,
-  topic_id uuid not null references public.topics(id) on delete cascade,
-  created_at timestamptz not null default now(),
+  video_id uuid   not null references public.videos(id) on delete cascade,
+  topic_id bigint not null references public.topics(id) on delete cascade,
   primary key (video_id, topic_id)
 );
 
--- Protected: users (app profile tied to auth.users)
+create table if not exists public.providers_topics (
+  provider_id bigint not null references public.providers(id) on delete cascade,
+  topic_id    bigint not null references public.topics(id)    on delete cascade,
+  primary key (provider_id, topic_id)
+);
+
+-- Profiles keyed to auth.users (don’t seed; depends on auth)
 create table if not exists public.users (
-  id uuid primary key references auth.users(id) on delete cascade,
-  display_name text,
-  avatar_url text,
-  topics_of_interest uuid[], -- simple list of topic ids (no PHI; no FK on arrays)
-  created_at timestamptz not null default now()
+  id                 uuid primary key references auth.users(id) on delete cascade,
+  display_name       text,
+  topics_of_interest text[] not null default '{}',
+  created_at         timestamptz not null default now()
 );
 
--- Protected: entitlements (what a user can access)
 create table if not exists public.entitlements (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.users(id) on delete cascade,
-  video_id uuid not null references public.videos(id) on delete cascade,
-  can_watch boolean not null default true,
-  expires_at timestamptz,
-  created_at timestamptz not null default now(),
-
-  unique (user_id, video_id)
+  id          bigint generated always as identity primary key,
+  user_id     uuid references public.users(id) on delete cascade,
+  provider_id bigint references public.providers(id) on delete set null,
+  video_id    uuid  references public.videos(id)    on delete set null,
+  plan        text,
+  expires_at  timestamptz,
+  created_at  timestamptz not null default now()
 );
 
--- =========
--- Row Level Security
--- =========
+-- Indexes -------------------------------------------------------------
+create index if not exists topics_slug_idx                 on public.topics(slug);
+create index if not exists providers_slug_idx              on public.providers(slug);
+create index if not exists videos_provider_idx             on public.videos(provider_id);
+create index if not exists videos_topics_video_idx         on public.videos_topics(video_id);
+create index if not exists videos_topics_topic_idx         on public.videos_topics(topic_id);
+create index if not exists providers_topics_provider_idx   on public.providers_topics(provider_id);
+create index if not exists providers_topics_topic_idx      on public.providers_topics(topic_id);
+create index if not exists entitlements_user_idx           on public.entitlements(user_id);
 
--- Enable RLS (catalog tables still readable via explicit policy)
-alter table public.topics enable row level security;
-alter table public.providers enable row level security;
-alter table public.videos enable row level security;
-alter table public.videos_topics enable row level security;
-alter table public.users enable row level security;
-alter table public.entitlements enable row level security;
+-- Views ---------------------------------------------------------------
+-- (CREATE OR REPLACE is already idempotent)
+create or replace view public.videos_flat as
+select
+  v.id,
+  v.title,
+  v.description,
+  v.media_provider,
+  v.embed_id,
+  v.storage_path,
+  v.duration_seconds,
+  v.provider_id,
+  v.created_at,
+  v.published as is_public,
+  t.slug as topic_slug
+from public.videos v
+left join public.videos_topics vt on vt.video_id = v.id
+left join public.topics t on t.id = vt.topic_id;
 
--- ---- Public read policies for catalog tables ----
--- topics: anyone (including anon) can select
-drop policy if exists "Public read topics" on public.topics;
-create policy "Public read topics"
-  on public.topics
-  for select
-  to anon, authenticated
-  using (true);
+create or replace view public.provider_with_topics as
+select
+  p.*,
+  coalesce(
+    json_agg(t.* order by t.name) filter (where t.id is not null),
+    '[]'
+  ) as topics
+from public.providers p
+left join public.providers_topics pt on pt.provider_id = p.id
+left join public.topics t on t.id = pt.topic_id
+group by p.id;
 
--- providers: anyone can select
-drop policy if exists "Public read providers" on public.providers;
-create policy "Public read providers"
-  on public.providers
-  for select
-  to anon, authenticated
-  using (true);
+-- Ensure privileges (idempotent)
+grant select on public.videos_flat, public.provider_with_topics to anon, authenticated;
 
--- videos: anyone can select only published videos
-drop policy if exists "Public read videos (published only)" on public.videos;
-create policy "Public read videos (published only)"
-  on public.videos
-  for select
-  to anon, authenticated
-  using (published = true);
+-- RLS -----------------------------------------------------------------
+alter table public.topics            enable row level security;
+alter table public.providers         enable row level security;
+alter table public.videos            enable row level security;
+alter table public.videos_topics     enable row level security;
+alter table public.providers_topics  enable row level security;
+alter table public.users             enable row level security;
+alter table public.entitlements      enable row level security;
 
--- videos_topics: anyone can select
-drop policy if exists "Public read videos_topics" on public.videos_topics;
-create policy "Public read videos_topics"
-  on public.videos_topics
-  for select
-  to anon, authenticated
-  using (true);
+-- Policies (idempotent via DO/EXCEPTION blocks) ----------------------
 
--- ---- Protected tables: users & entitlements (self read/upsert) ----
+-- Helper: create a policy if it doesn't exist
+-- (We detect by name + table; if duplicate, we ignore.)
+do $$
+begin
+  begin
+    create policy "Public can read topics"
+      on public.topics
+      for select
+      to anon, authenticated
+      using (true);
+  exception when duplicate_object then null;
+  end;
 
--- users: a user can see and manage only their own profile
-drop policy if exists "Users: self select" on public.users;
-create policy "Users: self select"
-  on public.users
-  for select
-  to authenticated
-  using (id = auth.uid());
+  begin
+    create policy "Public can read providers"
+      on public.providers
+      for select
+      to anon, authenticated
+      using (true);
+  exception when duplicate_object then null;
+  end;
 
-drop policy if exists "Users: self insert" on public.users;
-create policy "Users: self insert"
-  on public.users
-  for insert
-  to authenticated
-  with check (id = auth.uid());
+  begin
+    create policy "Public can read videos"
+      on public.videos
+      for select
+      to anon, authenticated
+      using (true);
+  exception when duplicate_object then null;
+  end;
 
-drop policy if exists "Users: self update" on public.users;
-create policy "Users: self update"
-  on public.users
-  for update
-  to authenticated
-  using (id = auth.uid())
-  with check (id = auth.uid());
+  begin
+    create policy "Public can read videos_topics"
+      on public.videos_topics
+      for select
+      to anon, authenticated
+      using (true);
+  exception when duplicate_object then null;
+  end;
 
--- entitlements: a user can see and upsert only their own entitlements
-drop policy if exists "Entitlements: self select" on public.entitlements;
-create policy "Entitlements: self select"
-  on public.entitlements
-  for select
-  to authenticated
-  using (user_id = auth.uid());
+  begin
+    create policy "Public can read providers_topics"
+      on public.providers_topics
+      for select
+      to anon, authenticated
+      using (true);
+  exception when duplicate_object then null;
+  end;
 
-drop policy if exists "Entitlements: self insert" on public.entitlements;
-create policy "Entitlements: self insert"
-  on public.entitlements
-  for insert
-  to authenticated
-  with check (user_id = auth.uid());
+  -- users (self-serve profile)
+  begin
+    create policy "Users can select own profile"
+      on public.users
+      for select
+      to authenticated
+      using (id = auth.uid());
+  exception when duplicate_object then null;
+  end;
 
-drop policy if exists "Entitlements: self update" on public.entitlements;
-create policy "Entitlements: self update"
-  on public.entitlements
-  for update
-  to authenticated
-  using (user_id = auth.uid())
-  with check (user_id = auth.uid());
+  begin
+    create policy "Users can insert own profile"
+      on public.users
+      for insert
+      to authenticated
+      with check (id = auth.uid());
+  exception when duplicate_object then null;
+  end;
 
--- Optionally, prevent deletes except by same user (or admins via future role)
-drop policy if exists "Users: self delete" on public.users;
-create policy "Users: self delete"
-  on public.users
-  for delete
-  to authenticated
-  using (id = auth.uid());
+  begin
+    create policy "Users can update own profile"
+      on public.users
+      for update
+      to authenticated
+      using (id = auth.uid())
+      with check (id = auth.uid());
+  exception when duplicate_object then null;
+  end;
 
-drop policy if exists "Entitlements: self delete" on public.entitlements;
-create policy "Entitlements: self delete"
-  on public.entitlements
-  for delete
-  to authenticated
-  using (user_id = auth.uid());
+  -- entitlements (owner-only)
+  begin
+    create policy "Users can read own entitlements"
+      on public.entitlements
+      for select
+      to authenticated
+      using (user_id = auth.uid());
+  exception when duplicate_object then null;
+  end;
+
+  begin
+    create policy "Users can insert own entitlements"
+      on public.entitlements
+      for insert
+      to authenticated
+      with check (user_id = auth.uid());
+  exception when duplicate_object then null;
+  end;
+
+  begin
+    create policy "Users can update own entitlements"
+      on public.entitlements
+      for update
+      to authenticated
+      using (user_id = auth.uid())
+      with check (user_id = auth.uid());
+  exception when duplicate_object then null;
+  end;
+end$$;
+
+-- Final grants for base tables (safe if repeated)
+grant select on public.topics, public.providers, public.videos, public.videos_topics, public.providers_topics to anon, authenticated;

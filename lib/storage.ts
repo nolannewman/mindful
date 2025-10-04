@@ -1,15 +1,65 @@
+// path: src/lib/storage.ts
 import { supabase } from './supabase';
-export async function getSignedUrl(storagePath: string, seconds = 3600) {
-  const [bucket, ...keyParts] = storagePath.split('/');
-  const key = keyParts.join('/');
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(key, seconds);
-  if (error || !data?.signedUrl) throw error ?? new Error('No signed URL');
-  return data.signedUrl;
+
+/**
+ * Returns a signed URL for a given Supabase Storage path.
+ * @param storagePath Format: "bucket/key/filename"
+ * @param seconds     Expiry in seconds (default 3600)
+ */
+export async function getSignedUrl(storagePath: string, seconds = 3600): Promise<
+  | { ok: true; url: string }
+  | { ok: false; error: string }
+> {
+  try {
+    const firstSlash = storagePath.indexOf('/');
+    if (firstSlash === -1) {
+      return { ok: false, error: 'Invalid storage path. Expected "bucket/key".' };
+    }
+    const bucket = storagePath.slice(0, firstSlash);
+    const objectPath = storagePath.slice(firstSlash + 1);
+
+    const result = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(objectPath, seconds);
+
+    if (result.error) {
+      return { ok: false, error: result.error.message };
+    }
+    // Only use the URL to avoid unused variables lint warnings
+    return { ok: true, url: result.data.signedUrl };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Unknown error creating signed URL';
+    return { ok: false, error: msg };
+  }
 }
-export async function uploadMedia(userId: string, file: File) {
-  const bucket = 'media';
-  const key = `${userId}/${Date.now()}-${file.name}`;
-  const { data, error } = await supabase.storage.from(bucket).upload(key, file, { upsert: false });
-  if (error) throw error;
-  return { storage_path: `${bucket}/${key}` };
+
+/**
+ * Upload a File/Blob to a bucket under a user-scoped directory.
+ * Returns the storage path on success (e.g., "bucket/userId/filename.ext").
+ */
+export async function uploadMedia(
+  bucket: string,
+  userId: string,
+  file: File
+): Promise<
+  | { ok: true; path: string }
+  | { ok: false; error: string }
+> {
+  try {
+    const filename = `${Date.now()}-${file.name}`;
+    const objectPath = `${userId}/${filename}`;
+
+    const { error } = await supabase.storage.from(bucket).upload(objectPath, file, {
+      upsert: false,
+      cacheControl: '3600',
+    });
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+    return { ok: true, path: `${bucket}/${objectPath}` };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Unknown error uploading media';
+    return { ok: false, error: msg };
+  }
 }

@@ -1,32 +1,18 @@
 // path: src/app/layout.tsx
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import NavBar from "@/../components/NavBar";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import './globals.css';
+import type { Metadata } from 'next';
+import { ReactNode } from 'react';
+import NavBar from '@/../components/NavBar'; // Re-added global navigation bar
 
 export const metadata: Metadata = {
-  title: "Sleep Hypnosis Catalog",
-  description: "Explore sleep hypnosis content and book sessions with providers.",
+  title: 'Sleep Hypnosis Catalog',
+  description: 'Explore sleep hypnosis content and book sessions with providers.',
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className="antialiased min-h-screen flex flex-col">
         {/* Accessible skip link */}
         <a
           href="#main"
@@ -35,11 +21,11 @@ export default function RootLayout({
           Skip to content
         </a>
 
-        {/* Global navigation bar */}
+        {/* Global Nav (appears on every page) */}
         <NavBar />
 
-        {/* Page content */}
-        <main id="main" className="min-h-screen">
+        {/* Main content */}
+        <main id="main" className="flex-1">
           {children}
         </main>
       </body>

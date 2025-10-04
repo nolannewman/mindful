@@ -1,9 +1,8 @@
-// src/app/watch/[id]/page.tsx
+// path: src/app/watch/[id]/page.tsx
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import type { Route } from 'next';
 import { getVideo } from '@/../lib/catalog';
 import { getSignedUrl } from '@/../lib/storage';
 
@@ -51,7 +50,8 @@ export default function WatchPage({ params }: PageProps) {
 
   useEffect(() => {
     let cancelled = false;
-    async function run() {
+
+    async function run(): Promise<void> {
       try {
         setStatus('loading');
         setError(null);
@@ -84,8 +84,15 @@ export default function WatchPage({ params }: PageProps) {
 
         if ((v.media_provider === 'FILE' || v.media_provider === 'AUDIO') && v.storage_path) {
           try {
-            const url = await getSignedUrl(v.storage_path, 3600);
-            if (!cancelled) setSignedUrl(url);
+            const result = await getSignedUrl(v.storage_path, 3600);
+            if (cancelled) return;
+
+            if (result.ok) {
+              setSignedUrl(result.url);
+            } else {
+              setSignedUrl(null);
+              setError('Could not generate a secure media URL.');
+            }
           } catch {
             if (!cancelled) {
               setError('Could not generate a secure media URL.');
@@ -101,6 +108,7 @@ export default function WatchPage({ params }: PageProps) {
         }
       }
     }
+
     run();
     return () => {
       cancelled = true;
@@ -108,9 +116,9 @@ export default function WatchPage({ params }: PageProps) {
   }, [id]);
 
   const providerQuery = video?.provider_id
-    ? (`?provider=${encodeURIComponent(video.provider_id)}` as const)
-    : ('' as const);
-  const bookHref = (`/book${providerQuery}` as unknown) as Route;
+    ? `?provider=${encodeURIComponent(video.provider_id)}`
+    : '';
+  const bookHref = `/book${providerQuery}`;
 
   // Loading state
   if (status === 'idle' || status === 'loading') {
@@ -130,8 +138,14 @@ export default function WatchPage({ params }: PageProps) {
     return (
       <main className="mx-auto max-w-2xl p-6 text-center">
         <h1 className="mb-2 text-2xl font-semibold">Video not found</h1>
-        <p className="mb-6 text-gray-600">The video you’re looking for doesn’t exist or isn’t available.</p>
-        <Link href="/" className="inline-block rounded border px-4 py-2 text-sm hover:bg-gray-50" aria-label="Go back to library">
+        <p className="mb-6 text-gray-600">
+          The video you’re looking for doesn’t exist or isn’t available.
+        </p>
+        <Link
+          href="/"
+          className="inline-block rounded border px-4 py-2 text-sm hover:bg-gray-50"
+          aria-label="Go back to library"
+        >
           ← Back to Library
         </Link>
       </main>
@@ -145,7 +159,9 @@ export default function WatchPage({ params }: PageProps) {
       <main className="mx-auto max-w-2xl p-6 text-center">
         <h1 className="mb-2 text-2xl font-semibold">{title}</h1>
         <p className="mb-6 text-gray-600">This session isn’t publicly available.</p>
-        <Link href="/" className="inline-block rounded border px-4 py-2 text-sm hover:bg-gray-50">← Back to Library</Link>
+        <Link href="/" className="inline-block rounded border px-4 py-2 text-sm hover:bg-gray-50">
+          ← Back to Library
+        </Link>
       </main>
     );
   }
@@ -163,11 +179,10 @@ export default function WatchPage({ params }: PageProps) {
           This session is available with a subscription. Book a session to learn more or get access.
         </p>
         <div className="flex items-center justify-center gap-3">
-          <Link href="/" className="rounded border px-4 py-2 text-sm hover:bg-gray-50">← Back</Link>
-          <Link
-            href={bookHref}
-            className="rounded bg-black px-4 py-2 text-sm text-white hover:opacity-90"
-          >
+          <Link href="/" className="rounded border px-4 py-2 text-sm hover:bg-gray-50">
+            ← Back
+          </Link>
+          <Link href={bookHref} className="rounded bg-black px-4 py-2 text-sm text-white hover:opacity-90">
             Book session
           </Link>
         </div>
@@ -181,7 +196,11 @@ export default function WatchPage({ params }: PageProps) {
       <main className="mx-auto max-w-2xl p-6 text-center">
         <h1 className="mb-2 text-2xl font-semibold">Unable to load</h1>
         <p className="mb-6 text-gray-600">{error ?? 'Please try again later.'}</p>
-        <Link href="/" className="inline-block rounded border px-4 py-2 text-sm hover:bg-gray-50" aria-label="Go back to library">
+        <Link
+          href="/"
+          className="inline-block rounded border px-4 py-2 text-sm hover:bg-gray-50"
+          aria-label="Go back to library"
+        >
           ← Back to Library
         </Link>
       </main>
@@ -211,7 +230,9 @@ export default function WatchPage({ params }: PageProps) {
                 aria-label={`Video player for ${title}`}
               />
             ) : (
-              <div className="aspect-video w-full rounded border p-4 text-center text-sm text-gray-600">Generating secure link…</div>
+              <div className="aspect-video w-full rounded border p-4 text-center text-sm text-gray-600">
+                Generating secure link…
+              </div>
             )}
           </div>
         )}
@@ -227,7 +248,9 @@ export default function WatchPage({ params }: PageProps) {
                 aria-label={`Audio player for ${title}`}
               />
             ) : (
-              <div className="rounded border p-4 text-center text-sm text-gray-600">Generating secure link…</div>
+              <div className="rounded border p-4 text-center text-sm text-gray-600">
+                Generating secure link…
+              </div>
             )}
           </div>
         )}
@@ -251,10 +274,14 @@ export default function WatchPage({ params }: PageProps) {
         {!embedSrc &&
           (video?.media_provider === 'YOUTUBE' || video?.media_provider === 'VIMEO') &&
           !video?.embed_id && (
-            <div className="rounded border p-4 text-center text-sm text-red-600">Missing embed ID for this provider.</div>
+            <div className="rounded border p-4 text-center text-sm text-red-600">
+              Missing embed ID for this provider.
+            </div>
           )}
         {(video?.media_provider === 'FILE' || video?.media_provider === 'AUDIO') && !video?.storage_path && (
-          <div className="rounded border p-4 text-center text-sm text-red-600">Missing storage path for this media.</div>
+          <div className="rounded border p-4 text-center text-sm text-red-600">
+            Missing storage path for this media.
+          </div>
         )}
       </section>
 

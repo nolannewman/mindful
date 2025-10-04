@@ -1,4 +1,4 @@
-// path: app/(auth)/login/page.tsx
+// path: src/app/(auth)/login/LoginClient.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -12,30 +12,32 @@ type Status =
   | { kind: 'sent'; email: string }
   | { kind: 'error'; message: string };
 
-export default function LoginPage() {
+type Props = {
+  redirectedFrom: string;
+};
+
+export default function LoginClient({ redirectedFrom }: Props) {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
 
   useEffect(() => {
-    // When a session appears, ensure profile then route to dashboard.
+    // When a session appears (e.g., after /auth/callback), ensure profile then route back
     const { data: subscription } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const user = session?.user;
       if (!user) return;
-
       const ensured = await ensureProfile({ id: user.id, email: user.email });
       if (!ensured.ok) {
         setStatus({ kind: 'error', message: ensured.error });
         return;
       }
-      // Route to dashboard. App Router segment path is the URL path.
-      router.replace('/(authed)/dashboard');
+      router.replace(redirectedFrom);
     });
 
     return () => {
       subscription.subscription.unsubscribe();
     };
-  }, [router]);
+  }, [router, redirectedFrom]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -48,14 +50,16 @@ export default function LoginPage() {
 
     const redirectTo =
       typeof window !== 'undefined'
-        ? `${window.location.origin}/(authed)/dashboard`
+        ? `${window.location.origin}/auth/callback?redirectedFrom=${encodeURIComponent(
+            redirectedFrom
+          )}`
         : undefined;
 
     const { error } = await supabase.auth.signInWithOtp({
       email: trimmed,
       options: {
         emailRedirectTo: redirectTo,
-        // Only user accounts sign up here; providers are seeded separately.
+        // Only user accounts can sign up here; providers are seeded separately.
         shouldCreateUser: true,
       },
     });
@@ -73,8 +77,8 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-2xl font-semibold mb-6">Sign in with a magic link</h1>
+    <>
+      <h1 className="mb-6 text-2xl font-semibold">Sign in with a magic link</h1>
 
       <form onSubmit={handleSubmit} className="space-y-4" aria-describedby="status-message">
         <div>
@@ -95,11 +99,7 @@ export default function LoginPage() {
           />
         </div>
 
-        <button
-          type="submit"
-          disabled={status.kind === 'sending'}
-          className="w-full rounded px-4 py-2 border"
-        >
+        <button type="submit" disabled={status.kind === 'sending'} className="w-full rounded border px-4 py-2">
           {status.kind === 'sending' ? 'Sending…' : 'Send magic link'}
         </button>
       </form>
@@ -116,6 +116,6 @@ export default function LoginPage() {
       <p className="mt-8 text-xs text-gray-500">
         Note: Only user accounts can sign up here. Provider accounts will be seeded by admins.
       </p>
-    </main>
+    </>
   );
 }

@@ -2,80 +2,57 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-/**
- * Dynamically determines the correct site URL for auth redirects.
- * - Uses NEXT_PUBLIC_SITE_URL if provided (preferred for custom domains)
- * - Falls back to VERCEL_URL (auto-set by Vercel)
- * - Defaults to http://localhost:3000 for local dev
- */
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  (process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3000');
+// Only touch auth gating; do not change other app behavior.
+const PROTECTED_PREFIXES = ['/dashboard', '/upload', '/(authed)'];
 
-// Define all routes that require authentication
-const PROTECTED_PATHS = ['/dashboard', '/upload'];
-
-/**
- * Middleware: Runs on every request and checks if the user
- * has a valid Supabase session cookie.
- *
- * If the user is not authenticated and the path matches a protected route,
- * they are redirected to `/login` with a `redirectedFrom` param.
- */
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, search } = req.nextUrl;
 
   // Normalize accidental segment like /(authed)/dashboard → /dashboard
   if (pathname.startsWith('/(authed)/')) {
-    const cleaned = pathname.replace('/(authed)', '');
     const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = cleaned;
+    redirectUrl.pathname = pathname.replace('/(authed)', '');
     return NextResponse.redirect(redirectUrl);
   }
 
-  // Skip public and static routes
-  const isProtected = PROTECTED_PATHS.some((prefix) => pathname.startsWith(prefix));
-  if (!isProtected) {
-    return NextResponse.next();
-  }
+  // Create a mutable response we can attach refreshed cookies to
+  const res = NextResponse.next({
+    request: { headers: req.headers },
+  });
 
-  // Create a mutable response for Supabase to refresh cookies
-  const res = NextResponse.next();
-
-  // Initialize Supabase SSR client (no secrets — uses anon key)
+  // ⚠️ IMPORTANT: Build Supabase server client (cookie refresh) without touching any localhost-ish site URL.
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        getAll: () => req.cookies.getAll(),
-        setAll: (cookies) => {
-          cookies.forEach(({ name, value, options }) => {
-            res.cookies.set(name, value, options);
-          });
+        get: (name) => req.cookies.get(name)?.value,
+        set: (name, value, options) => {
+          res.cookies.set({ name, value, ...options });
+        },
+        remove: (name, options) => {
+          res.cookies.set({ name, value: '', ...options });
         },
       },
     }
   );
 
-  // Retrieve session (will auto-refresh tokens if possible)
+  const isProtected = PROTECTED_PREFIXES.some((prefix) =>
+    pathname.startsWith(prefix)
+  );
+
+  // Try to read/refresh the session
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  // If no session, redirect to /login
-  if (!session) {
-    const redirectUrl = req.nextUrl.clone();
-    redirectUrl.pathname = '/login';
-    redirectUrl.searchParams.set('redirectedFrom', pathname);
-
-    // Include absolute URL for safety (useful if redirect crosses domains)
-    redirectUrl.host = new URL(SITE_URL).host;
-    redirectUrl.protocol = new URL(SITE_URL).protocol;
-
-    return NextResponse.redirect(redirectUrl);
+  if (isProtected && !user) {
+    // ✅ Build the redirect using the actual request origin (no localhost fallback).
+    // This fixes being sent to http://localhost on Vercel.
+    const redirectedFrom = `${pathname}${search}`;
+    const loginUrl = new URL('/login', req.url);
+    loginUrl.searchParams.set('redirectedFrom', redirectedFrom);
+    return NextResponse.redirect(loginUrl);
   }
 
   // Authenticated — continue with refreshed cookies if any

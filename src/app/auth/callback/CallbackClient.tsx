@@ -7,6 +7,14 @@ import { supabase } from '@/../lib/supabase';
 
 type Status = 'working' | 'done' | 'error';
 
+// Simple guard to keep redirects on-site and reasonable.
+function sanitizeRedirect(path: string | null | undefined): string {
+  if (!path) return '/';
+  if (!path.startsWith('/')) return '/';
+  // (Optional) you could disallow segment-group names etc. For now allow any path starting with "/".
+  return path;
+}
+
 export default function CallbackClient() {
   const router = useRouter();
   const search = useSearchParams();
@@ -14,7 +22,7 @@ export default function CallbackClient() {
   const [message, setMessage] = useState('Completing sign-in…');
 
   const redirectedFrom = useMemo(
-    () => search.get('redirectedFrom') || '/dashboard',
+    () => sanitizeRedirect(search.get('redirectedFrom') ?? '/'),
     [search]
   );
 
@@ -37,7 +45,6 @@ export default function CallbackClient() {
             });
             if (error) throw error;
 
-            // Clean the URL (remove sensitive hash)
             window.history.replaceState({}, document.title, '/auth/callback');
             if (!cancelled) {
               setStatus('done');
@@ -55,7 +62,6 @@ export default function CallbackClient() {
           );
           if (error) throw error;
 
-          // Clean the URL (remove query)
           window.history.replaceState({}, document.title, '/auth/callback');
           if (!cancelled) {
             setStatus('done');

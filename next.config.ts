@@ -14,8 +14,8 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https://i.ytimg.com",
               "connect-src 'self' https://*.supabase.co",
-              // IMPORTANT: allow YouTube/Vimeo frames
-              "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com",
+              // IMPORTANT: allow YouTube/Vimeo/Calendly frames
+              "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://calendly.com https://*.calendly.com",
               "media-src 'self' blob:",
             ].join('; ')
           }

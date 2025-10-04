@@ -14,16 +14,17 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-let client: SupabaseClient | null = null;
-
-if (url && anon) {
-  client = createClient(url, anon);
-}
-
 // One error message used across all traps so users see a clear hint.
 const missingEnvMessage =
   '[env] Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY. ' +
   'Set these in .env.local (for local dev) or in Vercel Project Settings → Environment Variables.';
+
+// Only instantiate in the browser when both env vars are present.
+// This prevents SSR/build-time initialization from ever happening.
+let client: SupabaseClient | null = null;
+if (typeof window !== 'undefined' && url && anon) {
+  client = createClient(url, anon);
+}
 
 // A Proxy that throws the above error on any access/use.
 // This prevents crashes at module import time, but guarantees
@@ -40,12 +41,12 @@ const throwingProxy = new Proxy(
   },
 ) as unknown as SupabaseClient;
 
-export const supabase: SupabaseClient = client ?? throwingProxy;
+export const supabase: SupabaseClient = client ?? (throwingProxy as SupabaseClient);
 
 /**
  * Optional helper to proactively assert env is present before doing any work.
  * Useful in actions/handlers if you want to fail fast with a clear error.
  */
 export function ensureSupabaseEnv(): void {
-  if (!client) throw new Error(missingEnvMessage);
+  if (!url || !anon) throw new Error(missingEnvMessage);
 }

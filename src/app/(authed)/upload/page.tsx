@@ -1,6 +1,9 @@
 // path: app/(authed)/upload/page.tsx
 'use client';
 
+// Prevent SSG/prerender for this client page so Supabase client only initializes in-browser.
+export const prerender = false;
+
 import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/../lib/supabase';
 import { uploadMedia } from '@/../lib/storage';
@@ -89,12 +92,11 @@ export default function UploadPage() {
       }
 
       // Basic type constraints
-      const allowed = ['audio/mpeg', 'audio/mp4', 'video/mp4'];
       const allowedNames = ['.mp3', '.m4a', '.mp4'];
       const lowerName = file.name.toLowerCase();
       const mime = file.type || '';
       const okByName = allowedNames.some((ext) => lowerName.endsWith(ext));
-      const okByType = allowed.some((t) => mime === t) || mime.startsWith('audio/') || mime.startsWith('video/');
+      const okByType = mime.startsWith('audio/') || mime.startsWith('video/');
       if (!okByName && !okByType) {
         throw new Error('Unsupported file type. Allowed: .mp3, .m4a, .mp4');
       }
@@ -184,7 +186,7 @@ export default function UploadPage() {
 
         <div>
           <label className="block text-sm font-medium">Title</label>
-        <input
+          <input
             className="mt-2 w-full rounded border px-3 py-2"
             placeholder="Optional title (defaults to filename)"
             value={title}

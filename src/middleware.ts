@@ -2,32 +2,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
-// List the REAL URLs that should require auth:
-const PROTECTED_PREFIXES = ['/dashboard', '/upload']; // add more real paths if needed
+// REAL URL prefixes that require auth (not folder names)
+const PROTECTED_PREFIXES = ['/dashboard', '/upload'];
 const AUTH_PAGES = new Set(['/login', '/sign-in', '/sign-up']);
 
-// helper: does a pathname fall under any protected prefix?
 const isProtected = (pathname: string) =>
   PROTECTED_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(p + '/')
   );
 
 export async function middleware(req: NextRequest) {
-  // create a mutable response so Supabase can attach refreshed cookies
-  const res = NextResponse.next();
+  // Create a mutable response so Supabase can attach refreshed cookies
+  const res = NextResponse.next({ request: { headers: req.headers } });
 
-  // Use NEXT_PUBLIC_* keys in middleware (Edge) — they’re available and already set
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        // Edge adapter must use getAll/setAll
+        // Edge adapter MUST use getAll / setAll
         getAll() {
           return req.cookies.getAll();
         },
-        setAll(cookiesToSet) {
-          for (const { name, value, options } of cookiesToSet) {
+        setAll(cookies) {
+          for (const { name, value, options } of cookies) {
             res.cookies.set(name, value, { ...options, sameSite: 'lax' });
           }
         },
@@ -36,13 +34,11 @@ export async function middleware(req: NextRequest) {
   );
 
   // This can refresh the session and emit Set-Cookie via setAll above
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const { pathname, search } = req.nextUrl;
 
-  // If authed, keep users out of /login (etc.)
+  // Keep signed-in users out of login pages
   if (user && AUTH_PAGES.has(pathname)) {
     const url = new URL('/dashboard', req.url);
     const redirect = NextResponse.redirect(url);
@@ -51,7 +47,7 @@ export async function middleware(req: NextRequest) {
     return redirect;
   }
 
-  // If not authed and hitting a protected path → /login?redirectedFrom=...
+  // Gate protected routes
   if (!user && isProtected(pathname)) {
     const url = new URL('/login', req.url);
     url.searchParams.set('redirectedFrom', pathname + (search || ''));
@@ -61,12 +57,12 @@ export async function middleware(req: NextRequest) {
     return redirect;
   }
 
-  // otherwise continue with any refreshed cookies intact
+  // Continue; any refreshed cookies stay on `res`
   return res;
 }
 
 export const config = {
-  // IMPORTANT: only match real URL paths, not filesystem segments like /(authed)
+  // IMPORTANT: match only REAL URL paths (no /(authed) — that's a folder name)
   matcher: [
     '/dashboard/:path*',
     '/upload/:path*',

@@ -33,7 +33,7 @@ export default function LoginPage() {
   const [sent, setSent] = useState(false);
 
   // Use '/' unless you have a dedicated callback route you handle.
-  const redirectTo = buildRedirectTo('/');
+  const redirectTo = buildRedirectTo('/auth/callback?next=/dashboard');
 
   const onSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();

@@ -153,10 +153,15 @@ function LibraryInner() {
       }
     }
 
-    // Search filter (title only; matches your current behavior)
+    // Search filter (title OR topic)
     const q = query.trim().toLowerCase();
     if (q) {
-      out = out.filter(v => v.title?.toLowerCase().includes(q));
+      out = out.filter(v => {
+        const inTitle = v.title?.toLowerCase().includes(q);
+        const topicText = (v.topic_slug ?? '').replace(/[-_]/g, ' ').toLowerCase();
+        const inTopic = topicText.includes(q);
+        return Boolean(inTitle || inTopic);
+      });
     }
 
     return out;
@@ -213,7 +218,7 @@ function LibraryInner() {
               id="q"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search titles or descriptions…"
+              placeholder="Search titles or topics…"
               className="w-full rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-indigo-400/40"
             />
             {query && (

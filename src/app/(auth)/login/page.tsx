@@ -1,81 +1,69 @@
-// path: src/app/(auth)/login/page.tsx
+// path: src/app/login/page.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
-import Link from 'next/link';
+import { useState } from 'react';
+// If your repo uses a different alias, keep the same one you've been using elsewhere:
 import { supabase } from '@/../lib/supabase';
 
 /**
- * Build an ABSOLUTE redirect URL for Supabase emails / OAuth.
- * - On Vercel: uses https://${process.env.VERCEL_URL}
- * - Else (dev): uses window.location.origin (localhost)
- * Always returns an absolute URL with a path suffix.
+ * Build an ABSOLUTE redirect URL for Supabase magic links.
+ * - Uses NEXT_PUBLIC_AUTH_URL (set this in Vercel to your prod domain, no trailing slash)
+ * - Defaults to http://localhost:3000 for local dev
+ * - Appends the provided path (default '/')
+ *
+ * Example Vercel env:
+ *   NEXT_PUBLIC_AUTH_URL = https://your-domain.com
+ *
+ * NOTE: If you don't pass an absolute redirect, Supabase falls back to its Dashboard "Site URL".
  */
-function buildRedirectTo(path: string): string {
-  const vercel = process.env.VERCEL_URL;
-  const base = vercel
-    ? `https://${vercel}` // Vercel gives bare domain without protocol
-    : (typeof window !== 'undefined' && window.location?.origin)
-      ? window.location.origin
-      : 'http://localhost:3000';
-  const cleanBase = base.replace(/\/+$/, '');
+function buildRedirectTo(path: string = '/'): string {
+  const base =
+    (process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:3000').replace(
+      /\/+$/,
+      ''
+    );
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${cleanBase}${cleanPath}`;
+  return `${base}${cleanPath}`;
 }
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
-  // Always absolute; never relative.
-  const redirectTo = useMemo(() => buildRedirectTo('/auth/callback'), []);
+  // Use '/' unless you have a dedicated callback route you handle.
+  const redirectTo = buildRedirectTo('/');
 
-  async function signInWithEmail(e: React.FormEvent) {
+  const onSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
-    setBusy(true);
-    setMsg(null);
-    setErr(null);
+    setError(null);
+    setSent(false);
+    setSending(true);
 
     try {
-      const { error } = await supabase.auth.signInWithOtp({
+      const { error: authError } = await supabase.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: redirectTo },
+        options: {
+          emailRedirectTo: redirectTo, // absolute URL from env
+        },
       });
-      if (error) throw new Error(error.message);
-      setMsg('Check your inbox for a sign-in link.');
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Unable to send magic link';
-      setErr(message);
+      if (authError) throw new Error(authError.message);
+      setSent(true);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to send magic link';
+      setError(message);
     } finally {
-      setBusy(false);
+      setSending(false);
     }
-  }
-
-  async function signInWithGoogle() {
-    setBusy(true);
-    setErr(null);
-    setMsg(null);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo },
-      });
-      if (error) throw new Error(error.message);
-      // Supabase will redirect to the provider; nothing to do here.
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Unable to start Google sign-in';
-      setErr(message);
-      setBusy(false);
-    }
-  }
+  };
 
   return (
     <main className="max-w-md mx-auto p-6" aria-labelledby="login-title">
       <h1 id="login-title" className="text-2xl font-semibold">Sign in</h1>
 
-      <form onSubmit={signInWithEmail} className="mt-6 space-y-4">
+      <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <label className="block">
           <span className="text-sm font-medium">Email</span>
           <input
@@ -91,40 +79,28 @@ export default function LoginPage() {
 
         <button
           type="submit"
-          disabled={!email || busy}
+          disabled={!email || sending}
           className="w-full rounded bg-black text-white px-4 py-2 disabled:opacity-50"
         >
-          {busy ? 'Sending…' : 'Send magic link'}
+          {sending ? 'Sending…' : 'Send magic link'}
         </button>
       </form>
 
-      <div className="mt-6">
-        <button
-          type="button"
-          onClick={signInWithGoogle}
-          disabled={busy}
-          className="w-full rounded border px-4 py-2 disabled:opacity-50"
-        >
-          Continue with Google
-        </button>
-      </div>
-
-      {msg && (
-        <div role="status" className="mt-4 rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm">
-          {msg}
+      {error && (
+        <div role="alert" className="mt-4 rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm">
+          {error}
         </div>
       )}
-      {err && (
-        <div role="alert" className="mt-4 rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm">
-          {err}
+      {sent && !error && (
+        <div role="status" className="mt-4 rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm">
+          Check your inbox for a magic link.
         </div>
       )}
 
       <p className="mt-4 text-xs text-gray-600">
-        Redirect: <code className="font-mono">{redirectTo}</code>
-      </p>
-      <p className="mt-1 text-xs text-gray-600">
-        Ensure this URL is added in Supabase → Authentication → Redirect URLs.
+        Redirect base: <code className="font-mono">
+          {process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:3000'}
+        </code>
       </p>
     </main>
   );

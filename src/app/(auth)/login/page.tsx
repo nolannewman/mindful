@@ -18,13 +18,17 @@ import { supabase } from '@/../lib/supabase';
  */
 function buildRedirectTo(path: string = '/'): string {
   const base =
-    (process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:3000').replace(
-      /\/+$/,
-      ''
-    );
+    // Prefer the real, current domain in the browser
+    (typeof window !== 'undefined' && window.location.origin)
+      ? window.location.origin
+      // Fallback for SSR: env or localhost
+      : (process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:3000');
+
+  const cleanBase = base.replace(/\/+$/, '');
   const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${base}${cleanPath}`;
+  return `${cleanBase}${cleanPath}`;
 }
+
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');

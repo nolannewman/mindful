@@ -7,10 +7,8 @@ import { supabase } from '@/../lib/supabase';
 
 type Status = 'working' | 'done' | 'error';
 
-// Simple guard to keep redirects on-site and reasonable.
 function sanitizeRedirect(path: string | null | undefined): string {
-  if (!path) return '/';
-  if (!path.startsWith('/')) return '/';
+  if (!path || !path.startsWith('/')) return '/dashboard';
   return path;
 }
 
@@ -21,21 +19,21 @@ export default function CallbackClient() {
   const [message, setMessage] = useState('Completing sign-in…');
 
   const redirectedFrom = useMemo(
-    () => sanitizeRedirect(search.get('redirectedFrom') ?? '/'),
+    () => sanitizeRedirect(search.get('redirectedFrom')),
     [search]
   );
 
   useEffect(() => {
     let cancelled = false;
 
-    async function run(): Promise<void> {
+    (async () => {
       try {
-        // 0) Handle provider error returned as ?error=...&error_description=...
-        const oauthError = search.get('error');
+        // Provider error passthrough (?error=...&error_description=...)
+        const oauthErr = search.get('error');
         const oauthDesc =
           search.get('error_description') || search.get('error_description[]');
-        if (oauthError) {
-          const msg = decodeURIComponent(oauthDesc ?? oauthError);
+        if (oauthErr) {
+          const msg = decodeURIComponent(oauthDesc ?? oauthErr);
           if (!cancelled) {
             setStatus('error');
             setMessage(msg || 'Authentication failed.');
@@ -44,7 +42,7 @@ export default function CallbackClient() {
           return;
         }
 
-        // 1) Handle magic-link tokens that arrive via URL hash (e.g., #access_token=...)
+        // Hash-based tokens (e.g., #access_token=...)
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
         if (hash && hash.includes('access_token')) {
           const params = new URLSearchParams(hash.slice(1));
@@ -58,7 +56,6 @@ export default function CallbackClient() {
             });
             if (error) throw error;
 
-            // Clean the URL (drop hash)
             window.history.replaceState({}, document.title, '/auth/callback');
 
             if (!cancelled) {
@@ -69,18 +66,18 @@ export default function CallbackClient() {
           }
         }
 
-        // 2) Handle OAuth / OTP code (?code=...) — PKCE or email OTP (verify)
+        // PKCE / email-OTP code (?code=...)
         const code = search.get('code');
         if (code) {
-          // Use full current URL so Supabase can parse all required params.
           const currentUrl =
             typeof window !== 'undefined' ? window.location.href : undefined;
+
           const { error } = await supabase.auth.exchangeCodeForSession(
             currentUrl as string
           );
           if (error) throw error;
 
-          // Clean querystring to avoid re-processing on back/refresh
+          // Clean query to avoid reprocessing on back/refresh
           window.history.replaceState({}, document.title, '/auth/callback');
 
           if (!cancelled) {
@@ -90,25 +87,23 @@ export default function CallbackClient() {
           return;
         }
 
-        // 3) Nothing to process – show a message and send to login
+        // No auth params → send to login
         if (!cancelled) {
           setStatus('error');
           setMessage('No authentication parameters found in the URL.');
           setTimeout(() => router.replace('/login'), 1200);
         }
       } catch (err: unknown) {
-        const errorMessage =
+        const msg =
           err instanceof Error ? err.message : 'Unexpected authentication error.';
-        console.error('Auth callback error:', err);
         if (!cancelled) {
           setStatus('error');
-          setMessage(errorMessage);
+          setMessage(msg);
           setTimeout(() => router.replace('/login'), 1500);
         }
       }
-    }
+    })();
 
-    run();
     return () => {
       cancelled = true;
     };
@@ -116,16 +111,12 @@ export default function CallbackClient() {
 
   return (
     <>
-      <h1 className="mb-2 text-xl font-semibold">
+      <h1 className="text-2xl font-semibold">
+        {status === 'working' ? 'Auth Callback' : status === 'done' ? 'Signed in!' : 'Sign-in error'}
+      </h1>
+      <p className="mt-2 text-gray-700">
         {status === 'working'
           ? 'Completing sign-in…'
-          : status === 'done'
-          ? 'Signed in!'
-          : 'Sign-in error'}
-      </h1>
-      <p className="text-gray-600">
-        {status === 'working'
-          ? 'Please wait a moment.'
           : status === 'done'
           ? 'Redirecting you now…'
           : message}

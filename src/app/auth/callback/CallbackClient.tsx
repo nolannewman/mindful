@@ -15,7 +15,7 @@ function safeRedirect(raw: string | null | undefined): string {
     if (path === '/' || path.startsWith('/auth') || path.startsWith('/login')) return '/dashboard';
     return path;
   } catch {
-    return '/dashboard';
+    return '/library';
   }
 }
 

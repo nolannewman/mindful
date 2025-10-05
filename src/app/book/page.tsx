@@ -1,66 +1,91 @@
-// app/book/page.tsx
-import type { Metadata } from 'next'
-import resolveCalendlyUrl from '@/lib/booking'
+// path: app/book/page.tsx
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import resolveCalendlyUrl from '@/lib/booking';
 
 export const metadata: Metadata = {
   title: 'Book a session',
   description: 'Schedule your session via Calendly.',
-}
+};
 
-type SearchParams =
-  | { [key: string]: string | string[] | undefined }
-  | undefined
+type SearchParams = { [key: string]: string | string[] | undefined } | undefined;
 
 function firstParam(value: string | string[] | undefined): string | undefined {
-  if (!value) return undefined
-  return Array.isArray(value) ? value[0] : value
+  if (!value) return undefined;
+  return Array.isArray(value) ? value[0] : value;
 }
 
-export default async function BookPage({
-  searchParams,
-}: {
-  searchParams: SearchParams
-}) {
-  const providerId = firstParam(searchParams?.provider)
-  const url = await resolveCalendlyUrl(providerId)
+export default async function BookPage({ searchParams }: { searchParams: SearchParams }) {
+  const providerId = firstParam(searchParams?.provider);
+  const url = await resolveCalendlyUrl(providerId);
 
-  // Make an embeddable src. Calendly supports direct page embedding.
-  // We keep it simple & stable. Extra params are optional and safe.
+  // Embeddable Calendly URL
   const embedUrl =
     url +
     (url.includes('?') ? '&' : '?') +
-    'hide_gdpr_banner=1&background_color=ffffff'
+    'hide_gdpr_banner=1&background_color=0b1020&text_color=ffffff&primary_color=6366f1';
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-8">
-      <header className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">Book a session</h1>
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-4"
-          aria-label="Open Calendly in a new tab"
-          title="Open Calendly in a new tab"
-        >
-          Open in new tab
-        </a>
-      </header>
+    <main className="container-page py-8">
+      {/* Hero */}
+      <section className="rounded-2xl hero-gradient hero-glow px-6 py-8 text-white">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Book a session</h1>
+            <p className="mt-2 text-sm text-white/70">
+              Pick a time that works for you. Your confirmation and meeting link will arrive via email.
+            </p>
+            {providerId && (
+              <p className="mt-1 text-xs text-white/60">Booking for provider ID: <span className="font-mono">{providerId}</span></p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-ghost"
+              aria-label="Open Calendly in a new tab"
+              title="Open Calendly in a new tab"
+            >
+              Open in new tab
+            </a>
+            <Link href="/providers" className="btn-primary">Browse providers</Link>
+          </div>
+        </div>
+      </section>
 
-      <p className="mb-4 text-sm text-gray-500">
-        Calendly sends your meeting link by email.
-      </p>
+      {/* Embed */}
+      <section className="mt-6">
+        <div className="card overflow-hidden">
+          {/* Keep a comfortable min-height; iframe fills the container */}
+          <div className="w-full min-h-[760px]">
+            <iframe
+              title="Calendly Scheduling"
+              src={embedUrl}
+              className="h-full w-full"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
+        </div>
 
-      {/* Stable-height, responsive-width container */}
-      <div className="w-full min-h-[760px] rounded border">
-        <iframe
-          title="Calendly Scheduling"
-          src={embedUrl}
-          className="h-full w-full rounded"
-          loading="lazy"
-          referrerPolicy="no-referrer-when-downgrade"
-        />
-      </div>
+        <p className="mt-3 text-xs text-gray-600 dark:text-gray-300">
+          By booking, you agree to Calendly’s terms. Sessions are provided by hypnotherapy professionals.
+          Sleep Trance does not provide medical care; for clinical concerns, consult a licensed provider.
+        </p>
+
+        {/* No-script fallback */}
+        <noscript>
+          <p className="mt-3 text-sm">
+            JavaScript is required to embed Calendly. You can{' '}
+            <a href={url} target="_blank" rel="noopener noreferrer" className="underline">
+              open the booking page in a new tab
+            </a>
+            .
+          </p>
+        </noscript>
+      </section>
     </main>
-  )
+  );
 }

@@ -6,6 +6,14 @@ import { createServerClient } from '@supabase/ssr';
 const PROTECTED_PREFIXES = ['/dashboard', '/upload', '/(authed)'];
 const AUTH_PAGES = new Set(['/login', '/sign-in', '/sign-up']);
 
+// Helper: protected path check
+const isProtectedPath = (pathname: string) =>
+  PROTECTED_PREFIXES.some((p) =>
+    p.endsWith('/')
+      ? pathname.startsWith(p)
+      : pathname === p || pathname.startsWith(p + '/')
+  );
+
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
 
@@ -16,12 +24,38 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  const isProtected = isProtectedPath(pathname);
+  const isAuthPage = AUTH_PAGES.has(pathname);
+
+  /**
+   * ✅ ONE FIX: normalize the host to your canonical domain
+   * Why: If users sign in on domain A but hit domain B (preview URL),
+   * the Supabase auth cookies won't be present and middleware will
+   * think they're logged out. We redirect protected/auth pages to
+   * the canonical host from NEXT_PUBLIC_AUTH_URL, preserving path/query.
+   */
+  const siteUrl = process.env.NEXT_PUBLIC_AUTH_URL; // e.g. https://mindful-n76v.vercel.app
+  if (siteUrl && (isProtected || isAuthPage)) {
+    try {
+      const canonical = new URL(siteUrl);
+      const current = new URL(req.url);
+      if (canonical.host !== current.host || canonical.protocol !== current.protocol) {
+        const to = new URL(req.url);
+        to.host = canonical.host;
+        to.protocol = canonical.protocol;
+        return NextResponse.redirect(to);
+      }
+    } catch {
+      // If env is malformed, skip host normalization.
+    }
+  }
+
   // Create a mutable response we can attach refreshed cookies to
   const res = NextResponse.next({
     request: { headers: req.headers },
   });
 
-  // ⚠️ IMPORTANT: Build Supabase server client (cookie refresh) without touching any localhost-ish site URL.
+  // Build Supabase server client (cookie refresh)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -32,24 +66,18 @@ export async function middleware(req: NextRequest) {
           res.cookies.set({ name, value, ...options });
         },
         remove: (name, options) => {
-          // Ensure removal persists in the browser
           res.cookies.set({ name, value: '', ...options, maxAge: 0 });
         },
       },
     }
   );
 
-  const isProtected = PROTECTED_PREFIXES.some((prefix) =>
-    pathname.startsWith(prefix)
-  );
-  const isAuthPage = AUTH_PAGES.has(pathname);
-
-  // Try to read/refresh the session (will also propagate any refreshed cookies to `res`)
+  // Try to read/refresh the session
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // If authenticated, prevent access to auth pages
+  // If authenticated, prevent access to auth pages (e.g., /login)
   if (user && isAuthPage) {
     const url = req.nextUrl.clone();
     url.pathname = '/dashboard';
@@ -57,7 +85,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // If not authenticated, block protected routes and preserve intended destination
+  // If not authenticated, block protected routes and preserve destination
   if (isProtected && !user) {
     const redirectedFrom = `${pathname}${search}`;
     const loginUrl = new URL('/login', req.url);
@@ -78,6 +106,7 @@ export const config = {
     '/dashboard/:path*',
     '/upload/:path*',
     '/(authed)/:path*',
+    // Ensure we can gate auth pages (so signed-in users can't visit them)
     '/login',
     '/sign-in',
     '/sign-up',

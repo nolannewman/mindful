@@ -3,8 +3,9 @@
 
 import './globals.css';
 import { useEffect, type ReactNode } from 'react';
-import NavBar from '@/../components/NavBar';
+import NavBar from '@/components/NavBar';
 import { supabase } from '@/lib/supabase/client';
+import OnboardingModal from '@/components/OnboardingModal';
 
 /**
  * Root-level session bootstrap.
@@ -35,7 +36,7 @@ function AuthBootstrap() {
     }
 
     if (hasAccessTokenHash) {
-      // trigger Supabase to parse hash and persist session
+      // Trigger Supabase to parse hash and persist session
       supabase.auth.getSession().finally(cleanUrl);
     }
   }, []);
@@ -57,10 +58,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           Skip to content
         </a>
 
-        {/* Global Nav (appears on every page) */}
+        {/* Global Nav */}
         <NavBar />
 
-        {/* Main content (readable width + responsive padding) */}
+        {/* Post-login onboarding (shows only when needed) */}
+        <OnboardingModal />
+
+        {/* Page content */}
         <main id="main" className="flex-1 max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
           {children}
         </main>

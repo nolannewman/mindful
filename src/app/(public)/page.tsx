@@ -7,7 +7,7 @@ export default function LandingPage() {
   return (
     <main className="relative">
       {/* HERO */}
-      <section className="hero-gradient">
+      <section className="hero-gradient hero-glow">
         <div className="container-page pt-16 sm:pt-24 pb-16">
           <div className="max-w-2xl">
             <h1 className="text-4xl sm:text-5xl font-semibold leading-tight tracking-tight">
@@ -19,6 +19,7 @@ export default function LandingPage() {
 
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/login" className="btn-primary">Get Started</Link>
+              {/* Hash link stays an <a> since it’s an in-page jump */}
               <a href="#how-it-works" className="btn-ghost">How it works</a>
             </div>
 
@@ -37,7 +38,7 @@ export default function LandingPage() {
           { t: 'Stay asleep longer', d: 'Audio sessions designed to retrain unhelpful nighttime patterns.' },
           { t: 'Wake up clearer', d: 'Restore focus and mood with consistent, gentle practice.' },
         ].map((c, i) => (
-          <div key={i} className="card p-6">
+          <div key={i} className="card card-hover p-6">
             <h3 className="font-semibold">{c.t}</h3>
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">{c.d}</p>
           </div>
@@ -70,7 +71,7 @@ export default function LandingPage() {
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
               Browse publicly available sessions and see what fits your routine.
             </p>
-            <Link href="/(public)/library" className="btn-ghost mt-4 inline-flex">Open Library</Link>
+            <Link href="/library" className="btn-ghost mt-4 inline-flex">Open Library</Link>
           </div>
 
           <div className="card p-6">

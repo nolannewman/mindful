@@ -1,0 +1,7 @@
+-- Let anyone (even logged-out) select objects metadata in the 'media' bucket.
+-- That’s enough for createSignedUrl(...) to work for all viewers.
+create policy "anon_select_media_for_signed_urls"
+on storage.objects
+for select
+to anon
+using (bucket_id = 'media');

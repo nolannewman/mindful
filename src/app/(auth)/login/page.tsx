@@ -1,9 +1,8 @@
-// path: src/app/login/page.tsx
+// path: src/app/(auth)/login/page.tsx
 'use client';
 
 import { useState } from 'react';
 import { supabase } from '@/../lib/supabase';
-import type { JSX } from 'react';
 
 function buildRedirectTo(path: string = '/'): string {
   const base =
@@ -16,15 +15,16 @@ function buildRedirectTo(path: string = '/'): string {
   return `${cleanBase}${cleanPath}`;
 }
 
-export default function LoginPage(): JSX.Element {
-  const [email, setEmail] = useState<string>('');
-  const [sending, setSending] = useState<boolean>(false);
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState<boolean>(false);
+  const [sent, setSent] = useState(false);
 
+  // Standardize on `redirectedFrom`
   const redirectTo = buildRedirectTo('/auth/callback?redirectedFrom=/dashboard');
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setSent(false);
@@ -81,15 +81,6 @@ export default function LoginPage(): JSX.Element {
           Check your inbox for a magic link.
         </div>
       )}
-
-      <p className="mt-4 text-xs text-gray-600">
-        Redirect base:{' '}
-        <code className="font-mono">
-          {typeof window !== 'undefined'
-            ? window.location.origin
-            : process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:3000'}
-        </code>
-      </p>
     </main>
   );
 }

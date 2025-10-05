@@ -1,6 +1,5 @@
 // path: src/app/auth/callback/CallbackClient.tsx
 'use client';
-import type { JSX } from 'react';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -13,13 +12,13 @@ function sanitizeRedirect(path: string | null): string {
   return path;
 }
 
-export default function CallbackClient(): JSX.Element {
+export default function CallbackClient() {
   const router = useRouter();
   const sp = useSearchParams();
   const [status, setStatus] = useState<Status>('working');
-  const [message, setMessage] = useState<string>('Completing sign-in…');
+  const [message, setMessage] = useState('Completing sign-in…');
 
-  const redirectedFrom = useMemo<string>(() => {
+  const redirectedFrom = useMemo(() => {
     const a = sp.get('redirectedFrom');
     const b = sp.get('next');
     return sanitizeRedirect(a ?? b);
@@ -30,7 +29,7 @@ export default function CallbackClient(): JSX.Element {
 
     (async () => {
       try {
-        // 0) Provider error passthrough (?error=...&error_description=...)
+        // Provider error passthrough
         const oauthErr = sp.get('error');
         const oauthDesc = sp.get('error_description') ?? sp.get('error_description[]');
         if (oauthErr) {
@@ -42,7 +41,7 @@ export default function CallbackClient(): JSX.Element {
           return;
         }
 
-        // 1) Hash-based tokens (rare, but some providers use them)
+        // Hash tokens (rare)
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
         if (hash.includes('access_token')) {
           const params = new URLSearchParams(hash.slice(1));
@@ -55,7 +54,7 @@ export default function CallbackClient(): JSX.Element {
             });
             if (error) throw error;
 
-            // Clean hash to avoid re-processing
+            // Clean hash
             window.history.replaceState({}, document.title, '/auth/callback');
 
             if (!cancelled) {
@@ -66,14 +65,14 @@ export default function CallbackClient(): JSX.Element {
           }
         }
 
-        // 2) PKCE / OTP code (?code=...)
+        // PKCE / email OTP code (?code=...)
         const code = sp.get('code');
         if (code) {
           const href = typeof window !== 'undefined' ? window.location.href : '';
           const { error } = await supabase.auth.exchangeCodeForSession(href);
           if (error) throw error;
 
-          // Clean query to avoid re-processing on back/refresh
+          // Clean query
           window.history.replaceState({}, document.title, '/auth/callback');
 
           if (!cancelled) {
@@ -83,7 +82,7 @@ export default function CallbackClient(): JSX.Element {
           return;
         }
 
-        // 3) No auth params → exit gracefully
+        // No auth params
         if (!cancelled) {
           setStatus('error');
           setMessage('No authentication parameters found.');

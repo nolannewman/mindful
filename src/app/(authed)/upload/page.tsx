@@ -13,7 +13,7 @@ type VideoRow = { id: string };
 const ACCEPT = '.mp4,.m4a,.mp3';
 const MAX_MB = 25;
 const MAX_BYTES = MAX_MB * 1024 * 1024;
-const BUCKET = 'videos';
+const BUCKET = 'media';
 
 export default function UploadPage() {
   const [topics, setTopics] = useState<Topic[]>([]);

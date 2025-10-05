@@ -1,18 +1,18 @@
-// src/middleware.ts
+// path: src/middleware.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
-// REAL URL prefixes that require auth (not folder names)
-const PROTECTED_PREFIXES = ['/dashboard', '/upload'];
-const AUTH_PAGES = new Set(['/login', '/sign-in', '/sign-up']);
+type CookieKV = { name: string; value: string };
+type SetCookie = { name: string; value: string; options: CookieOptions };
 
-const isProtected = (pathname: string) =>
-  PROTECTED_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(p + '/')
-  );
+const PROTECTED_PREFIXES: readonly string[] = ['/dashboard', '/upload'];
+const AUTH_PAGES = new Set<string>(['/login', '/sign-in', '/sign-up']);
 
-export async function middleware(req: NextRequest) {
-  // Create a mutable response so Supabase can attach refreshed cookies
+const isProtected = (pathname: string): boolean =>
+  PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+
+export async function middleware(req: NextRequest): Promise<Response> {
+  // Mutable response so Supabase can refresh cookies
   const res = NextResponse.next({ request: { headers: req.headers } });
 
   const supabase = createServerClient(
@@ -20,34 +20,31 @@ export async function middleware(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        // Edge adapter MUST use getAll / setAll
-        getAll() {
-          return req.cookies.getAll();
+        getAll(): CookieKV[] {
+          return req.cookies.getAll().map(({ name, value }) => ({ name, value }));
         },
-        setAll(cookies) {
-          for (const { name, value, options } of cookies) {
+        setAll(cookiesToSet: SetCookie[]): void {
+          // forward refreshed cookies onto the response
+          cookiesToSet.forEach(({ name, value, options }) => {
             res.cookies.set(name, value, { ...options, sameSite: 'lax' });
-          }
+          });
         },
       },
     }
   );
 
-  // This can refresh the session and emit Set-Cookie via setAll above
   const { data: { user } } = await supabase.auth.getUser();
-
   const { pathname, search } = req.nextUrl;
 
-  // Keep signed-in users out of login pages
+  // If authed, keep users off auth pages
   if (user && AUTH_PAGES.has(pathname)) {
-    const url = new URL('/dashboard', req.url);
-    const redirect = NextResponse.redirect(url);
+    const redirect = NextResponse.redirect(new URL('/dashboard', req.url));
     const setCookie = res.headers.get('set-cookie');
     if (setCookie) redirect.headers.append('set-cookie', setCookie);
     return redirect;
   }
 
-  // Gate protected routes
+  // If NOT authed and the path is protected → /login
   if (!user && isProtected(pathname)) {
     const url = new URL('/login', req.url);
     url.searchParams.set('redirectedFrom', pathname + (search || ''));
@@ -57,17 +54,17 @@ export async function middleware(req: NextRequest) {
     return redirect;
   }
 
-  // Continue; any refreshed cookies stay on `res`
+  // Otherwise continue with any refreshed cookies intact
   return res;
 }
 
 export const config = {
-  // IMPORTANT: match only REAL URL paths (no /(authed) — that's a folder name)
   matcher: [
     '/dashboard/:path*',
     '/upload/:path*',
     '/login',
     '/sign-in',
     '/sign-up',
+    // DO NOT include '/auth/callback' — it must be free to finish the session
   ],
 };

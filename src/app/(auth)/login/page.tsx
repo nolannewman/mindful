@@ -3,12 +3,8 @@
 
 import { useState } from 'react';
 import { supabase } from '@/../lib/supabase';
+import type { JSX } from 'react';
 
-/**
- * Build an ABSOLUTE redirect URL for Supabase magic links.
- * - Prefers the current browser origin to avoid cross-domain PKCE errors
- * - Falls back to NEXT_PUBLIC_AUTH_URL or localhost during SSR / static build
- */
 function buildRedirectTo(path: string = '/'): string {
   const base =
     typeof window !== 'undefined' && window.location.origin
@@ -20,16 +16,15 @@ function buildRedirectTo(path: string = '/'): string {
   return `${cleanBase}${cleanPath}`;
 }
 
-export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
+export default function LoginPage(): JSX.Element {
+  const [email, setEmail] = useState<string>('');
+  const [sending, setSending] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
+  const [sent, setSent] = useState<boolean>(false);
 
-  // Redirect users to /auth/callback so PKCE + cookies complete on same origin
   const redirectTo = buildRedirectTo('/auth/callback?redirectedFrom=/dashboard');
 
-  const onSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     setError(null);
     setSent(false);
@@ -38,26 +33,20 @@ export default function LoginPage() {
     try {
       const { error: authError } = await supabase.auth.signInWithOtp({
         email,
-        options: {
-          emailRedirectTo: redirectTo,
-        },
+        options: { emailRedirectTo: redirectTo },
       });
       if (authError) throw new Error(authError.message);
       setSent(true);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to send magic link';
-      setError(message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send magic link');
     } finally {
       setSending(false);
     }
-  };
+  }
 
   return (
     <main className="max-w-md mx-auto p-6" aria-labelledby="login-title">
-      <h1 id="login-title" className="text-2xl font-semibold">
-        Sign in
-      </h1>
+      <h1 id="login-title" className="text-2xl font-semibold">Sign in</h1>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <label className="block">
@@ -83,18 +72,12 @@ export default function LoginPage() {
       </form>
 
       {error && (
-        <div
-          role="alert"
-          className="mt-4 rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm"
-        >
+        <div role="alert" className="mt-4 rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm">
           {error}
         </div>
       )}
       {sent && !error && (
-        <div
-          role="status"
-          className="mt-4 rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm"
-        >
+        <div role="status" className="mt-4 rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm">
           Check your inbox for a magic link.
         </div>
       )}

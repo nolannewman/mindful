@@ -1,5 +1,6 @@
 // path: src/app/auth/callback/CallbackClient.tsx
 'use client';
+import type { JSX } from 'react';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -7,55 +8,54 @@ import { supabase } from '@/../lib/supabase';
 
 type Status = 'working' | 'done' | 'error';
 
-function sanitizeRedirect(path: string | null | undefined): string {
+function sanitizeRedirect(path: string | null): string {
   if (!path || !path.startsWith('/')) return '/dashboard';
   return path;
 }
 
-export default function CallbackClient() {
+export default function CallbackClient(): JSX.Element {
   const router = useRouter();
-  const search = useSearchParams();
+  const sp = useSearchParams();
   const [status, setStatus] = useState<Status>('working');
-  const [message, setMessage] = useState('Completing sign-in…');
+  const [message, setMessage] = useState<string>('Completing sign-in…');
 
-  const redirectedFrom = useMemo(
-    () => sanitizeRedirect(search.get('redirectedFrom')),
-    [search]
-  );
+  const redirectedFrom = useMemo<string>(() => {
+    const a = sp.get('redirectedFrom');
+    const b = sp.get('next');
+    return sanitizeRedirect(a ?? b);
+  }, [sp]);
 
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        // Provider error passthrough (?error=...&error_description=...)
-        const oauthErr = search.get('error');
-        const oauthDesc =
-          search.get('error_description') || search.get('error_description[]');
+        // 0) Provider error passthrough (?error=...&error_description=...)
+        const oauthErr = sp.get('error');
+        const oauthDesc = sp.get('error_description') ?? sp.get('error_description[]');
         if (oauthErr) {
-          const msg = decodeURIComponent(oauthDesc ?? oauthErr);
           if (!cancelled) {
             setStatus('error');
-            setMessage(msg || 'Authentication failed.');
-            setTimeout(() => router.replace('/login'), 1500);
+            setMessage(decodeURIComponent(oauthDesc ?? oauthErr));
+            setTimeout(() => router.replace('/login'), 1200);
           }
           return;
         }
 
-        // Hash-based tokens (e.g., #access_token=...)
+        // 1) Hash-based tokens (rare, but some providers use them)
         const hash = typeof window !== 'undefined' ? window.location.hash : '';
-        if (hash && hash.includes('access_token')) {
+        if (hash.includes('access_token')) {
           const params = new URLSearchParams(hash.slice(1));
-          const access_token = params.get('access_token');
-          const refresh_token = params.get('refresh_token');
-
-          if (access_token && refresh_token) {
+          const accessToken = params.get('access_token');
+          const refreshToken = params.get('refresh_token');
+          if (accessToken && refreshToken) {
             const { error } = await supabase.auth.setSession({
-              access_token,
-              refresh_token,
+              access_token: accessToken,
+              refresh_token: refreshToken,
             });
             if (error) throw error;
 
+            // Clean hash to avoid re-processing
             window.history.replaceState({}, document.title, '/auth/callback');
 
             if (!cancelled) {
@@ -66,18 +66,14 @@ export default function CallbackClient() {
           }
         }
 
-        // PKCE / email-OTP code (?code=...)
-        const code = search.get('code');
+        // 2) PKCE / OTP code (?code=...)
+        const code = sp.get('code');
         if (code) {
-          const currentUrl =
-            typeof window !== 'undefined' ? window.location.href : undefined;
-
-          const { error } = await supabase.auth.exchangeCodeForSession(
-            currentUrl as string
-          );
+          const href = typeof window !== 'undefined' ? window.location.href : '';
+          const { error } = await supabase.auth.exchangeCodeForSession(href);
           if (error) throw error;
 
-          // Clean query to avoid reprocessing on back/refresh
+          // Clean query to avoid re-processing on back/refresh
           window.history.replaceState({}, document.title, '/auth/callback');
 
           if (!cancelled) {
@@ -87,27 +83,24 @@ export default function CallbackClient() {
           return;
         }
 
-        // No auth params → send to login
+        // 3) No auth params → exit gracefully
         if (!cancelled) {
           setStatus('error');
-          setMessage('No authentication parameters found in the URL.');
-          setTimeout(() => router.replace('/login'), 1200);
+          setMessage('No authentication parameters found.');
+          setTimeout(() => router.replace('/login'), 900);
         }
-      } catch (err: unknown) {
-        const msg =
-          err instanceof Error ? err.message : 'Unexpected authentication error.';
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Unexpected authentication error.';
         if (!cancelled) {
           setStatus('error');
           setMessage(msg);
-          setTimeout(() => router.replace('/login'), 1500);
+          setTimeout(() => router.replace('/login'), 1000);
         }
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [router, search, redirectedFrom]);
+    return () => { cancelled = true; };
+  }, [router, sp, redirectedFrom]);
 
   return (
     <>

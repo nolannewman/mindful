@@ -3,22 +3,47 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase/client';
-import { uploadMedia } from '@/lib/storage';
+// Use relative imports so it works regardless of your alias config:
+import { supabase } from '../../../lib/supabase/client';
+import { uploadMedia } from '../../../lib/storage';
 
 type Topic = { id: number; name: string };
-
 type VideoRow = { id: string };
+
+type SourceType = 'file' | 'youtube';
 
 const ACCEPT = '.mp4,.m4a,.mp3';
 const MAX_MB = 25;
 const MAX_BYTES = MAX_MB * 1024 * 1024;
-const BUCKET = 'media';
+const BUCKET = 'media'; // <-- your bucket id
+
+// Simple, non-strict extractor: returns an ID if the URL looks like YouTube; otherwise returns the original string.
+// If you truly don't want validation, you can skip this and just store the raw URL in embed_id.
+function extractYouTubeIdOrReturnRaw(input: string): string {
+  try {
+    const u = new URL(input);
+    if (/^(www\.)?youtube\.com$/i.test(u.hostname)) {
+      const id = u.searchParams.get('v');
+      return id || input;
+    }
+    if (/^(youtu\.be)$/i.test(u.hostname)) {
+      const id = u.pathname.replace('/', '');
+      return id || input;
+    }
+    return input;
+  } catch {
+    return input; // not a URL, store as-is
+  }
+}
 
 export default function UploadPage() {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [selectedTopics, setSelectedTopics] = useState<number[]>([]);
+
+  const [source, setSource] = useState<SourceType>('file');
   const [file, setFile] = useState<File | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+
   const [title, setTitle] = useState<string>('');
   const [description, setDescription] = useState<string>('');
 
@@ -36,13 +61,23 @@ export default function UploadPage() {
         .order('name', { ascending: true })
         .returns<Topic[]>();
 
-      if (error) {
-        setError(error.message);
-      } else {
-        setTopics(data ?? []);
-      }
+      if (error) setError(error.message);
+      else setTopics(data ?? []);
     })();
   }, []);
+
+  // Reset irrelevant fields when switching source
+  useEffect(() => {
+    setError(null);
+    setToast(null);
+    setSuccessId(null);
+    setProgress(null);
+    if (source === 'file') {
+      setYoutubeUrl('');
+    } else {
+      setFile(null);
+    }
+  }, [source]);
 
   const onSelectTopics = (id: number, checked: boolean) => {
     setSelectedTopics((prev) =>
@@ -53,25 +88,15 @@ export default function UploadPage() {
   const onFileChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     setError(null);
     const f = e.target.files?.[0] ?? null;
-    if (!f) {
-      setFile(null);
-      return;
-    }
-    if (f.size > MAX_BYTES) {
-      setError(`File too large. Max ${MAX_MB}MB.`);
-      return;
-    }
+    if (!f) { setFile(null); return; }
+    if (f.size > MAX_BYTES) { setError(`File too large. Max ${MAX_MB}MB.`); return; }
     const lower = f.name.toLowerCase();
     if (!ACCEPT.split(',').some((ext) => lower.endsWith(ext))) {
       setError(`Unsupported file type. Allowed: ${ACCEPT}`);
       return;
     }
     setFile(f);
-    // Default title to filename (without extension) if empty
-    if (!title) {
-      const base = f.name.replace(/\.[^/.]+$/, '');
-      setTitle(base);
-    }
+    if (!title) setTitle(f.name.replace(/\.[^/.]+$/, ''));
   };
 
   const onSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
@@ -81,56 +106,56 @@ export default function UploadPage() {
     setSuccessId(null);
     setProgress(10);
 
-    if (!file) {
-      setError('Please choose a file.');
-      return;
-    }
-    if (!title.trim()) {
-      setError('Please provide a title.');
-      return;
-    }
+    if (!title.trim()) { setError('Please provide a title.'); return; }
 
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error: userErr } = await supabase.auth.getUser();
       if (userErr || !user) throw new Error('Authentication required.');
 
-      // 1) Upload to Supabase Storage
-      setProgress(40);
-      const upload = await uploadMedia(BUCKET, user.id, file);
-      if (!upload.ok) throw new Error(upload.error);
+      let storagePath: string | null = null;
+      let mediaProvider: 'FILE' | 'YOUTUBE' = 'FILE';
+      let embedId: string | null = null;
 
-      // 2) Insert video (schema: videos has media_provider + storage_path + published/pro)
-      //    Note: provider_id is nullable; we can omit it for FILE uploads.
+      if (source === 'file') {
+        if (!file) { setError('Please choose a file.'); return; }
+        setProgress(40);
+        const uploaded = await uploadMedia(BUCKET, user.id, file);
+        if (!uploaded.ok) throw new Error(uploaded.error);
+        storagePath = uploaded.path; // e.g. "media/<uid>/timestamp-name.ext"
+        mediaProvider = 'FILE';
+      } else {
+        if (!youtubeUrl.trim()) { setError('Please enter a YouTube URL.'); return; }
+        setProgress(40); // no upload, but keep the UX consistent
+        mediaProvider = 'YOUTUBE';
+        // store the ID if we can guess it; else store the raw string
+        embedId = extractYouTubeIdOrReturnRaw(youtubeUrl.trim());
+        storagePath = null;
+      }
+
+      // 2) Insert video row
       setProgress(70);
       const { data: rows, error: vErr } = await supabase
         .from('videos')
         .insert({
           title: title.trim(),
           description: description.trim() || null,
-          media_provider: 'FILE',
-          storage_path: upload.path,
+          media_provider: mediaProvider,
+          embed_id: embedId,
+          storage_path: storagePath,
           published: true,
           pro: false,
         })
         .select('id')
-        .returns<VideoRow[]>(); // array response
+        .returns<VideoRow[]>();
 
       if (vErr) throw new Error(vErr.message);
       const newId = rows?.[0]?.id;
       if (!newId) throw new Error('Insert succeeded but no id was returned.');
 
-      // 3) Link topics (videos_topics expects bigint topic_id + uuid video_id)
+      // 3) Link topics
       if (selectedTopics.length > 0) {
-        const linkRows = selectedTopics.map((topic_id) => ({
-          video_id: newId,
-          topic_id,
-        }));
-        const { error: linkErr } = await supabase
-          .from('videos_topics')
-          .insert(linkRows);
+        const toInsert = selectedTopics.map((topic_id) => ({ video_id: newId, topic_id }));
+        const { error: linkErr } = await supabase.from('videos_topics').insert(toInsert);
         if (linkErr) throw new Error(linkErr.message);
       }
 
@@ -140,8 +165,7 @@ export default function UploadPage() {
     } catch (err: unknown) {
       setProgress(null);
       setSuccessId(null);
-      const message = err instanceof Error ? err.message : 'Upload failed.';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Upload failed.');
     }
   };
 
@@ -150,33 +174,75 @@ export default function UploadPage() {
       <h1 id="upload-title" className="text-2xl font-semibold">Upload</h1>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-6">
-        <div>
-          <label htmlFor="file" className="block text-sm font-medium">
-            Media file
-          </label>
-          <input
-            id="file"
-            name="file"
-            type="file"
-            accept={ACCEPT}
-            onChange={onFileChange}
-            className="mt-2 block w-full rounded border p-2"
-          />
-          <p className="mt-1 text-xs">
-            Accepts {ACCEPT.replaceAll('.', '')}. Max size {MAX_MB}MB.
-          </p>
-          {file && (
-            <p className="mt-1 text-xs">
-              Selected: <span className="font-mono">{file.name}</span> (
-              {(file.size / (1024 * 1024)).toFixed(1)} MB)
+        {/* Source selector */}
+        <fieldset className="space-y-2">
+          <legend className="block text-sm font-medium">Source</legend>
+          <div className="flex items-center gap-4 mt-2">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="source"
+                value="file"
+                checked={source === 'file'}
+                onChange={() => setSource('file')}
+              />
+              <span className="text-sm">Upload file</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="source"
+                value="youtube"
+                checked={source === 'youtube'}
+                onChange={() => setSource('youtube')}
+              />
+              <span className="text-sm">YouTube URL</span>
+            </label>
+          </div>
+        </fieldset>
+
+        {/* File input */}
+        {source === 'file' && (
+          <div>
+            <label htmlFor="file" className="block text-sm font-medium">Media file</label>
+            <input
+              id="file"
+              name="file"
+              type="file"
+              accept={ACCEPT}
+              onChange={onFileChange}
+              className="mt-2 block w-full rounded border p-2"
+            />
+            <p className="mt-1 text-xs">Accepts {ACCEPT.replaceAll('.', '')}. Max size {MAX_MB}MB.</p>
+            {file && (
+              <p className="mt-1 text-xs">
+                Selected: <span className="font-mono">{file.name}</span> ({(file.size / (1024 * 1024)).toFixed(1)} MB)
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* YouTube input */}
+        {source === 'youtube' && (
+          <div>
+            <label htmlFor="youtube" className="block text-sm font-medium">YouTube URL</label>
+            <input
+              id="youtube"
+              name="youtube"
+              type="url"
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              className="mt-2 block w-full rounded border p-2"
+              placeholder="https://youtu.be/VIDEO_ID or https://www.youtube.com/watch?v=VIDEO_ID"
+            />
+            <p className="mt-1 text-xs opacity-75">
+              We don’t validate here; we’ll store the ID if we can, otherwise the raw URL.
             </p>
-          )}
-        </div>
+          </div>
+        )}
 
         <div>
-          <label htmlFor="title" className="block text-sm font-medium">
-            Title
-          </label>
+          <label htmlFor="title" className="block text-sm font-medium">Title</label>
           <input
             id="title"
             name="title"
@@ -189,9 +255,7 @@ export default function UploadPage() {
         </div>
 
         <div>
-          <label htmlFor="description" className="block text-sm font-medium">
-            Description (optional)
-          </label>
+          <label htmlFor="description" className="block text-sm font-medium">Description (optional)</label>
           <textarea
             id="description"
             name="description"
@@ -227,10 +291,10 @@ export default function UploadPage() {
         <div className="flex items-center gap-3">
           <button
             type="submit"
-            disabled={!file || progress !== null}
+            disabled={(source === 'file' && !file) || progress !== null}
             className="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
           >
-            {progress === null ? 'Upload' : 'Uploading...'}
+            {progress === null ? (source === 'file' ? 'Upload' : 'Save') : 'Working...'}
           </button>
 
           {progress !== null && (
@@ -241,13 +305,10 @@ export default function UploadPage() {
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={progress}
-                aria-label="Upload progress"
-                title={`Uploading ${progress}%`}
+                aria-label="Progress"
+                title={`Progress ${progress}%`}
               >
-                <div
-                  className="h-2"
-                  style={{ width: `${progress}%`, transition: 'width 0.3s linear' }}
-                />
+                <div className="h-2" style={{ width: `${progress}%`, transition: 'width 0.3s linear' }} />
               </div>
               <p className="text-xs mt-1">{progress}%</p>
             </div>
@@ -255,19 +316,13 @@ export default function UploadPage() {
         </div>
 
         {error && (
-          <div
-            className="rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm"
-            role="alert"
-          >
+          <div className="rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm" role="alert">
             {error}
           </div>
         )}
 
         {toast && successId && (
-          <div
-            className="rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm"
-            role="status"
-          >
+          <div className="rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm" role="status">
             {toast}{' '}
             <Link className="underline" href={`/watch/${successId}`}>
               View video

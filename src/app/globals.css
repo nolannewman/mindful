@@ -1,12 +1,15 @@
 /* path: src/app/globals.css */
 @import "tailwindcss";
 
-/* Base tokens (kept from your core) */
+/* ------------------------------
+   Design Tokens
+------------------------------ */
 :root {
+  /* Base */
   --background: #ffffff;
   --foreground: #171717;
 
-  /* New: Brand palette & utilities */
+  /* Brand */
   --brand-50:  #eef2ff;
   --brand-100: #e0e7ff;
   --brand-200: #c7d2fe;
@@ -18,8 +21,16 @@
   --brand-800: #3730a3;
   --brand-900: #312e81;
 
-  --muted: #6b7280;        /* gray-500 */
-  --surface: #0b1020;      /* deep navy for hero backgrounds */
+  /* Accents */
+  --gold: #dbbe48;
+
+  /* UI */
+  --muted: #6b7280;     /* gray-500 */
+  --surface: #0b1020;   /* deep navy for hero backgrounds */
+
+  /* Radii */
+  --r-card: 16px;
+  --r-pill: 999px;
 }
 
 @theme inline {
@@ -27,8 +38,6 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-
-  /* Expose a brand color to Tailwind’s inline theme tokens if needed */
   --color-brand-500: var(--brand-500);
 }
 
@@ -39,35 +48,106 @@
   }
 }
 
-/* Base body styles (kept) */
+/* ------------------------------
+   Base
+------------------------------ */
+* { -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI,
+    Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica Neue, Arial, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
-/* ------------------------------------------------------- */
-/* New: Design utilities used across pages/components      */
-/* ------------------------------------------------------- */
-
-/* Layout container */
-.container-page {
-  @apply max-w-6xl mx-auto px-4 sm:px-6;
+/* Smoother focus outlines by default */
+:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 2px;
 }
 
-/* Landing hero background */
+/* Links inherit color until hovered (lets us style via utilities) */
+a { color: inherit; text-decoration: none; }
+a:hover { text-decoration: none; }
+
+/* ------------------------------
+   Layout Helpers
+------------------------------ */
+.container-page { @apply max-w-6xl mx-auto px-4 sm:px-6; }
+
+/* ------------------------------
+   Surface & Hero
+------------------------------ */
 .hero-gradient {
   background:
     radial-gradient(1200px 600px at 50% -80%, rgba(99,102,241,0.25), rgba(12,11,38,0)),
     linear-gradient(180deg, #0b1020 0%, #0b102000 60%);
 }
 
-/* Card surface */
-.card {
-  @apply rounded-2xl border border-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm shadow-sm;
+.hero-glow {
+  position: relative;
+  overflow: hidden;
+}
+.hero-glow::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(50% 40% at 30% -10%, rgba(99,102,241,0.35), transparent 60%),
+    radial-gradient(45% 35% at 80% 10%, rgba(219,190,72,0.18), transparent 60%);
+  filter: blur(20px);
+  animation: glowFloat 12s ease-in-out infinite alternate;
+  pointer-events: none; /* don’t block clicks */
+}
+@keyframes glowFloat {
+  from { transform: translate3d(-2%, -1%, 0) rotate(-1deg); opacity: .9; }
+  to   { transform: translate3d(1%, 1%, 0) rotate(1deg);   opacity: 1;  }
 }
 
-/* Buttons */
+.card {
+  @apply border border-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm shadow-sm;
+  border-radius: var(--r-card);
+}
+
+/* ------------------------------
+   Interactive Cards (click-safe)
+------------------------------ */
+.card-hover {
+  position: relative;
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px -15px rgba(0,0,0,.4);
+}
+.card-hover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.06), transparent 70%);
+  opacity: 0;
+  transition: opacity .2s ease;
+  pointer-events: none; /* ← critical: allow clicks through overlay */
+  z-index: 0;          /* keep overlay behind */
+}
+/* Ensure actual content sits above the shine */
+.card-hover > * { position: relative; z-index: 1; }
+.card-hover:hover::after { opacity: 1; }
+
+/* Faux thumbnail header for cards */
+.thumb-faux {
+  height: 110px;
+  border-radius: calc(var(--r-card) - 2px);
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.0), rgba(0,0,0,.25)),
+    radial-gradient(80% 80% at 20% 0%, rgba(99,102,241,.35), rgba(55,48,163,.15) 60%, transparent 70%);
+}
+
+/* ------------------------------
+   Controls: Buttons / Inputs
+------------------------------ */
 .btn-primary {
   @apply inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
          text-white bg-indigo-600 hover:bg-indigo-500
@@ -82,5 +162,44 @@ body {
          transition;
 }
 
-/* Text helpers */
+/* Unified input/select styling used on Library & Providers */
+.input, .select {
+  @apply w-full rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm
+         placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-indigo-400/40;
+  color: inherit;
+}
+.select { padding-right: 2.25rem; }
+
+/* ------------------------------
+   Badges / Pills
+------------------------------ */
+.pill {
+  @apply inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium border;
+  border-radius: var(--r-pill);
+}
+.pill-soft { @apply bg-white/10 border-white/10 text-white; }
+.pill-gold { border: 1px solid var(--gold); color: var(--gold); background: transparent; }
+
+/* ------------------------------
+   Typography helpers
+------------------------------ */
 .muted { color: var(--muted); }
+
+/* ------------------------------
+   Skeletons
+------------------------------ */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,.08);
+  border-radius: 10px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent);
+  transform: translateX(-100%);
+  animation: skeletonMove 1.2s infinite;
+}
+@keyframes skeletonMove { to { transform: translateX(100%); } }

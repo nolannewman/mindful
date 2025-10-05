@@ -1,3 +1,4 @@
+// path: src/app/auth/callback/CallbackClient.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -91,5 +92,24 @@ export default function CallbackClient() {
     return () => { cancelled = true; };
   }, [router, sp]);
 
-  return <div className="p-6">{msg}</div>;
+  // --- Styling-only UI shell ---
+  const isError = typeof msg === 'string' && msg.startsWith('Auth error');
+
+  return (
+    <div className="space-y-4" aria-live="polite">
+      <div className="w-full h-2 bg-gray-200 dark:bg-white/10 rounded-full overflow-hidden">
+        <div
+          className="h-2 bg-indigo-500 dark:bg-indigo-400 animate-pulse"
+          style={{ width: '66%' }}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={66}
+        />
+      </div>
+      <p className={`text-sm ${isError ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'}`}>
+        {msg}
+      </p>
+    </div>
+  );
 }

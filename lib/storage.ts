@@ -6,10 +6,10 @@ import { supabase } from './supabase';
  * @param storagePath Format: "bucket/key/filename"
  * @param seconds     Expiry in seconds (default 3600)
  */
-export async function getSignedUrl(storagePath: string, seconds = 3600): Promise<
-  | { ok: true; url: string }
-  | { ok: false; error: string }
-> {
+export async function getSignedUrl(
+  storagePath: string,
+  seconds = 3600
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   try {
     const firstSlash = storagePath.indexOf('/');
     if (firstSlash === -1) {
@@ -25,10 +25,10 @@ export async function getSignedUrl(storagePath: string, seconds = 3600): Promise
     if (result.error) {
       return { ok: false, error: result.error.message };
     }
-    // Only use the URL to avoid unused variables lint warnings
     return { ok: true, url: result.data.signedUrl };
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Unknown error creating signed URL';
+    const msg =
+      e instanceof Error ? e.message : 'Unknown error creating signed URL';
     return { ok: false, error: msg };
   }
 }
@@ -41,25 +41,28 @@ export async function uploadMedia(
   bucket: string,
   userId: string,
   file: File
-): Promise<
-  | { ok: true; path: string }
-  | { ok: false; error: string }
-> {
+): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
   try {
-    const filename = `${Date.now()}-${file.name}`;
+    if (!userId) return { ok: false, error: 'Missing user ID' };
+    if (!file) return { ok: false, error: 'No file selected' };
+
+    const filename = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
     const objectPath = `${userId}/${filename}`;
 
-    const { error } = await supabase.storage.from(bucket).upload(objectPath, file, {
-      upsert: false,
-      cacheControl: '3600',
-    });
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(objectPath, file, {
+        upsert: false,
+        cacheControl: '3600',
+      });
 
     if (error) {
       return { ok: false, error: error.message };
     }
     return { ok: true, path: `${bucket}/${objectPath}` };
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : 'Unknown error uploading media';
+    const msg =
+      e instanceof Error ? e.message : 'Unknown error uploading media';
     return { ok: false, error: msg };
   }
 }

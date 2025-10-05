@@ -1,315 +1,280 @@
 // path: src/app/(authed)/upload/page.tsx
-<<<<<<< HEAD
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/../lib/supabase';
 import { uploadMedia } from '@/../lib/storage';
 
-type Topic = {
-  id: number;
-  slug: string;
-  name?: string | null;
-};
+type Topic = { id: number; name: string };
 
-type Stage = 'idle' | 'validating' | 'uploading' | 'inserting' | 'done' | 'error';
+type VideoRow = { id: string };
 
-// Simple auth helper: get current user id from Supabase auth (browser)
-async function getUserId(): Promise<string | null> {
-  try {
-    const { data } = await supabase.auth.getUser();
-    return data.user?.id ?? null;
-  } catch {
-    return null;
-  }
-}
+const ACCEPT = '.mp4,.m4a,.mp3';
+const MAX_MB = 25;
+const MAX_BYTES = MAX_MB * 1024 * 1024;
+const BUCKET = 'videos';
 
 export default function UploadPage() {
-  const [userId, setUserId] = useState<string | null>(null);
-  const [file, setFile] = useState<File | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
-  const [selectedTopicIds, setSelectedTopicIds] = useState<number[]>([]);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [selectedTopics, setSelectedTopics] = useState<number[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [title, setTitle] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
 
-  const [busy, setBusy] = useState(false);
-  const [stage, setStage] = useState<Stage>('idle');
+  const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [newVideoId, setNewVideoId] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [successId, setSuccessId] = useState<string | null>(null);
 
-  const acceptAttr = useMemo(() => '.mp4,.m4a,.mp3', []);
-
+  // Load topics
   useEffect(() => {
-    let active = true;
     (async () => {
-      const uid = await getUserId();
-      if (!active) return;
-      setUserId(uid);
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+      const { data, error } = await supabase
+        .from('topics')
+        .select('id,name')
+        .order('name', { ascending: true })
+        .returns<Topic[]>();
 
-  // Load topics for selector
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from('topics')
-          .select('id, slug, name')
-          .order('name', { ascending: true });
-
-        if (!active) return;
-        if (error) {
-          // non-fatal; allow uploading without topics if table is absent
-          setTopics([]);
-          return;
-        }
-        setTopics((data ?? []) as Topic[]);
-      } catch {
-        if (!active) return;
-        setTopics([]);
+      if (error) {
+        setError(error.message);
+      } else {
+        setTopics(data ?? []);
       }
     })();
-    return () => {
-      active = false;
-    };
   }, []);
 
-  function toggleTopic(id: number) {
-    setSelectedTopicIds((prev) =>
-      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
+  const onSelectTopics = (id: number, checked: boolean) => {
+    setSelectedTopics((prev) =>
+      checked ? [...new Set([...prev, id])] : prev.filter((t) => t !== id)
     );
-  }
+  };
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
+  const onFileChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     setError(null);
-    setStage('validating');
+    const f = e.target.files?.[0] ?? null;
+    if (!f) {
+      setFile(null);
+      return;
+    }
+    if (f.size > MAX_BYTES) {
+      setError(`File too large. Max ${MAX_MB}MB.`);
+      return;
+    }
+    const lower = f.name.toLowerCase();
+    if (!ACCEPT.split(',').some((ext) => lower.endsWith(ext))) {
+      setError(`Unsupported file type. Allowed: ${ACCEPT}`);
+      return;
+    }
+    setFile(f);
+    // Default title to filename (without extension) if empty
+    if (!title) {
+      const base = f.name.replace(/\.[^/.]+$/, '');
+      setTitle(base);
+    }
+  };
+
+  const onSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setToast(null);
+    setSuccessId(null);
+    setProgress(10);
+
+    if (!file) {
+      setError('Please choose a file.');
+      return;
+    }
+    if (!title.trim()) {
+      setError('Please provide a title.');
+      return;
+    }
 
     try {
-      if (!userId) throw new Error('You must be logged in to upload.');
-      if (!file) throw new Error('Choose a file to upload.');
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+      if (userErr || !user) throw new Error('Authentication required.');
 
-      // Size constraints (~25MB)
-      const MAX = 25 * 1024 * 1024;
-      if (file.size > MAX) {
-        throw new Error('File is too large. Maximum size is 25 MB.');
-      }
+      // 1) Upload to Supabase Storage
+      setProgress(40);
+      const upload = await uploadMedia(BUCKET, user.id, file);
+      if (!upload.ok) throw new Error(upload.error);
 
-      // Basic type constraints
-      const allowedNames = ['.mp3', '.m4a', '.mp4'];
-      const lowerName = file.name.toLowerCase();
-      const mime = file.type || '';
-      const okByName = allowedNames.some((ext) => lowerName.endsWith(ext));
-      const okByType = mime.startsWith('audio/') || mime.startsWith('video/');
-      if (!okByName && !okByType) {
-        throw new Error('Unsupported file type. Allowed: .mp3, .m4a, .mp4');
-      }
-
-      setStage('uploading');
-
-      // 1) Upload to Storage (two args only)
-      const { storage_path } = await uploadMedia(userId as string, file as File);
-
-      setStage('inserting');
-
-      // 2) Insert into videos
-      const { data: inserted, error: insErr } = await supabase
+      // 2) Insert video (schema: videos has media_provider + storage_path + published/pro)
+      //    Note: provider_id is nullable; we can omit it for FILE uploads.
+      setProgress(70);
+      const { data: rows, error: vErr } = await supabase
         .from('videos')
         .insert({
-          title: title || file.name.replace(/\.[^/.]+$/, ''),
-          description: description || null,
+          title: title.trim(),
+          description: description.trim() || null,
           media_provider: 'FILE',
-          embed_id: null,
-          storage_path,
-          duration_seconds: null,
-          provider_id: null,
+          storage_path: upload.path,
+          published: true,
+          pro: false,
         })
         .select('id')
-        .single();
+        .returns<VideoRow[]>(); // array response
 
-      if (insErr) throw insErr;
-      const videoId = (inserted as { id: string } | null)?.id;
-      if (!videoId) throw new Error('Insert did not return id');
+      if (vErr) throw new Error(vErr.message);
+      const newId = rows?.[0]?.id;
+      if (!newId) throw new Error('Insert succeeded but no id was returned.');
 
-      // 3) Link topics
-      if (selectedTopicIds.length > 0) {
-        const rows = selectedTopicIds.map((topic_id) => ({ video_id: videoId, topic_id }));
-        const { error: linkErr } = await supabase.from('videos_topics').insert(rows);
-        if (linkErr) throw linkErr;
+      // 3) Link topics (videos_topics expects bigint topic_id + uuid video_id)
+      if (selectedTopics.length > 0) {
+        const linkRows = selectedTopics.map((topic_id) => ({
+          video_id: newId,
+          topic_id,
+        }));
+        const { error: linkErr } = await supabase
+          .from('videos_topics')
+          .insert(linkRows);
+        if (linkErr) throw new Error(linkErr.message);
       }
 
-      setNewVideoId(videoId);
-      setStage('done');
+      setProgress(100);
+      setSuccessId(newId);
+      setToast('Upload complete!');
     } catch (err: unknown) {
-      setStage('error');
-
-      // TS-safe error extraction (no 'any')
-      let message = 'Upload failed';
-      if (err && typeof err === 'object') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const maybeMsg = (err as { message?: unknown }).message;
-        if (typeof maybeMsg === 'string') {
-          message = maybeMsg;
-        } else {
-          try {
-            message = JSON.stringify(err);
-          } catch {
-            // keep default
-          }
-        }
-      } else if (typeof err === 'string') {
-        message = err;
-      }
-
+      setProgress(null);
+      setSuccessId(null);
+      const message = err instanceof Error ? err.message : 'Upload failed.';
       setError(message);
-    } finally {
-      setBusy(false);
     }
-  }
-
-  const canSubmit = !!file && !!userId && !busy;
+  };
 
   return (
-    <main className="mx-auto max-w-2xl px-4 py-10">
-      <h1 className="text-2xl font-semibold">Upload Media</h1>
-      <p className="mt-2 text-sm text-gray-500">
-        Upload an MP3/MP4/M4A to Supabase Storage. We’ll create a catalog entry and link topics.
-      </p>
+    <main className="max-w-xl mx-auto p-6" aria-labelledby="upload-title">
+      <h1 id="upload-title" className="text-2xl font-semibold">Upload</h1>
 
-      <form onSubmit={onSubmit} className="mt-8 space-y-6">
+      <form onSubmit={onSubmit} className="mt-6 space-y-6">
         <div>
-          <label className="block text-sm font-medium">File</label>
+          <label htmlFor="file" className="block text-sm font-medium">
+            Media file
+          </label>
           <input
+            id="file"
+            name="file"
             type="file"
-            accept={acceptAttr}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="mt-2 block w-full"
-            aria-describedby="file-help"
+            accept={ACCEPT}
+            onChange={onFileChange}
+            className="mt-2 block w-full rounded border p-2"
           />
-          <div id="file-help" className="mt-2 text-xs text-gray-500">
-            Accepted: .mp3, .m4a, .mp4 · Max 25MB
-          </div>
+          <p className="mt-1 text-xs">
+            Accepts {ACCEPT.replaceAll('.', '')}. Max size {MAX_MB}MB.
+          </p>
           {file && (
-            <div className="mt-2 rounded border bg-gray-50 p-2 text-xs">
-              <div><span className="font-medium">Name:</span> {file.name}</div>
-              <div><span className="font-medium">Size:</span> {(file.size / (1024 * 1024)).toFixed(2)} MB</div>
-              <div><span className="font-medium">Type:</span> {file.type || '—'}</div>
-            </div>
+            <p className="mt-1 text-xs">
+              Selected: <span className="font-mono">{file.name}</span> (
+              {(file.size / (1024 * 1024)).toFixed(1)} MB)
+            </p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Title</label>
+          <label htmlFor="title" className="block text-sm font-medium">
+            Title
+          </label>
           <input
-            className="mt-2 w-full rounded border px-3 py-2"
-            placeholder="Optional title (defaults to filename)"
+            id="title"
+            name="title"
+            type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            className="mt-2 block w-full rounded border p-2"
+            placeholder="Enter a title"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium">Description</label>
+          <label htmlFor="description" className="block text-sm font-medium">
+            Description (optional)
+          </label>
           <textarea
-            className="mt-2 w-full rounded border px-3 py-2"
-            placeholder="Optional short description"
-            rows={3}
+            id="description"
+            name="description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
+            className="mt-2 block w-full rounded border p-2"
+            rows={3}
+            placeholder="Add a short description"
           />
         </div>
 
-        <fieldset className="rounded border p-4">
-          <legend className="text-sm font-medium">Topics</legend>
-          {topics.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-500">No topics found (you can still upload).</p>
-          ) : (
-            <ul className="mt-2 grid grid-cols-2 gap-2">
-              {topics.map((t) => (
-                <li key={t.id} className="flex items-center gap-2">
+        <div>
+          <span className="block text-sm font-medium">Topics</span>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {topics.length === 0 ? (
+              <p className="text-sm italic col-span-2">No topics found.</p>
+            ) : (
+              topics.map((t) => (
+                <label key={t.id} className="flex items-center gap-2 rounded border p-2">
                   <input
-                    id={`topic-${t.id}`}
                     type="checkbox"
-                    checked={selectedTopicIds.includes(t.id)}
-                    onChange={() => toggleTopic(t.id)}
+                    aria-label={t.name}
+                    checked={selectedTopics.includes(t.id)}
+                    onChange={(e) => onSelectTopics(t.id, e.target.checked)}
                   />
-                  <label htmlFor={`topic-${t.id}`} className="text-sm">
-                    {t.name || t.slug}
-                  </label>
-                </li>
-              ))}
-            </ul>
-          )}
-        </fieldset>
-
-        {/* Progress Indicator */}
-        {busy || stage !== 'idle' ? (
-          <div className="rounded bg-gray-50 p-3 text-sm">
-            <div className="font-medium">Progress</div>
-            <ul className="mt-1 list-disc pl-5">
-              <li className={stage !== 'idle' ? 'opacity-100' : 'opacity-50'}>Validating</li>
-              <li className={stage === 'uploading' || stage === 'inserting' || stage === 'done' ? 'opacity-100' : 'opacity-50'}>
-                Uploading to Storage
-              </li>
-              <li className={stage === 'inserting' || stage === 'done' ? 'opacity-100' : 'opacity-50'}>
-                Inserting video row
-              </li>
-              <li className={stage === 'done' ? 'opacity-100' : 'opacity-50'}>
-                Linking topics
-              </li>
-            </ul>
+                  <span className="text-sm">{t.name}</span>
+                </label>
+              ))
+            )}
           </div>
-        ) : null}
+        </div>
 
         <div className="flex items-center gap-3">
           <button
             type="submit"
-            disabled={!canSubmit}
-            className="rounded bg-black px-4 py-2 text-white disabled:opacity-50"
+            disabled={!file || progress !== null}
+            className="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
           >
-            {busy ? 'Uploading…' : 'Upload'}
+            {progress === null ? 'Upload' : 'Uploading...'}
           </button>
-          {error && (
-            <span role="alert" className="text-sm text-red-600">
-              {error}
-            </span>
+
+          {progress !== null && (
+            <div className="flex-1">
+              <div
+                className="w-full h-2 rounded bg-gray-200 overflow-hidden"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress}
+                aria-label="Upload progress"
+                title={`Uploading ${progress}%`}
+              >
+                <div
+                  className="h-2"
+                  style={{ width: `${progress}%`, transition: 'width 0.3s linear' }}
+                />
+              </div>
+              <p className="text-xs mt-1">{progress}%</p>
+            </div>
           )}
         </div>
 
-        {stage === 'done' && newVideoId && (
-          <div className="rounded border border-green-200 bg-green-50 p-3">
-            <div className="font-medium text-green-800">Success!</div>
-            <p className="mt-1 text-sm text-green-800">
-              Your media was uploaded and added to your catalog.
-            </p>
-            <div className="mt-2">
-              <a
-                href={`/watch/${newVideoId}`}
-                className="underline"
-                aria-label="Open the new video"
-              >
-                Go to Watch page →
-              </a>
-            </div>
+        {error && (
+          <div
+            className="rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm"
+            role="alert"
+          >
+            {error}
+          </div>
+        )}
+
+        {toast && successId && (
+          <div
+            className="rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm"
+            role="status"
+          >
+            {toast}{' '}
+            <Link className="underline" href={`/watch/${successId}`}>
+              View video
+            </Link>
           </div>
         )}
       </form>
-=======
-import type { Metadata } from "next";
-
-export const metadata: Metadata = { title: "Upload" };
-
-export default function UploadPage() {
-  return (
-    <main className="p-8">
-      <h1 className="text-xl font-semibold">Upload</h1>
-      <p className="mt-2 text-sm">Provider upload placeholder.</p>
->>>>>>> parent of c461c67 (feat: upload)
     </main>
   );
 }

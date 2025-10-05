@@ -24,7 +24,7 @@ export default function NavBar() {
       if (!mounted) return;
 
       if (error) {
-        setAuth({ kind: 'anon' }); // fall back safely
+        setAuth({ kind: 'anon' });
       } else if (data.user) {
         setAuth({ kind: 'authed', email: data.user.email ?? null });
       } else {
@@ -35,11 +35,7 @@ export default function NavBar() {
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
       const user = session?.user;
-      if (user) {
-        setAuth({ kind: 'authed', email: user.email ?? null });
-      } else {
-        setAuth({ kind: 'anon' });
-      }
+      setAuth(user ? { kind: 'authed', email: user.email ?? null } : { kind: 'anon' });
     });
 
     return () => {
@@ -55,24 +51,27 @@ export default function NavBar() {
   };
 
   return (
-    <header className="border-b border-white/10 bg-white/70 dark:bg-black/30 backdrop-blur-md sticky top-0 z-40">
+    <header
+      className="border-b border-white/10 bg-black/30 backdrop-blur-md sticky top-0 z-40 text-gray-200"
+      data-theme="dark"
+    >
       <div className="container-page py-3 flex h-14 items-center justify-between">
         <div className="flex items-center gap-6">
-          <Link href="/" className="text-lg font-semibold tracking-tight hover:opacity-90">
+          <Link href="/" className="text-lg font-semibold tracking-tight hover:opacity-90 text-white">
             Sleep Trance
           </Link>
 
           <nav aria-label="Primary" className="flex items-center gap-1 sm:gap-3">
             <Link
               href="/library"
-              className={`px-3 py-2 rounded-lg text-sm hover:bg-indigo-50 dark:hover:bg-white/10 transition ${linkCls(isActive('/library'))}`}
+              className={`px-3 py-2 rounded-lg text-sm hover:bg-white/10 transition ${linkCls(isActive('/library'))}`}
               aria-current={isActive('/library') ? 'page' : undefined}
             >
               Library
             </Link>
             <Link
               href="/providers"
-              className={`px-3 py-2 rounded-lg text-sm hover:bg-indigo-50 dark:hover:bg-white/10 transition ${linkCls(isActive('/providers'))}`}
+              className={`px-3 py-2 rounded-lg text-sm hover:bg-white/10 transition ${linkCls(isActive('/providers'))}`}
               aria-current={isActive('/providers') ? 'page' : undefined}
             >
               Providers
@@ -82,7 +81,7 @@ export default function NavBar() {
 
         <div className="flex items-center gap-3">
           {auth.kind === 'loading' && (
-            <span className="text-sm text-gray-500" aria-live="polite">
+            <span className="text-sm text-gray-400" aria-live="polite">
               Checking session…
             </span>
           )}
@@ -105,11 +104,7 @@ export default function NavBar() {
                   router.replace('/login');
                 }}
               >
-                <button
-                  type="submit"
-                  className="btn-ghost"
-                  aria-label="Sign out"
-                >
+                <button type="submit" className="btn-ghost" aria-label="Sign out">
                   Sign out
                 </button>
               </form>
@@ -124,7 +119,6 @@ export default function NavBar() {
 function linkCls(active: boolean) {
   return [
     'text-sm',
-    active ? 'font-semibold text-indigo-700 dark:text-indigo-300'
-           : 'text-gray-700 dark:text-gray-200',
+    active ? 'font-semibold text-indigo-300' : 'text-gray-200',
   ].join(' ');
 }

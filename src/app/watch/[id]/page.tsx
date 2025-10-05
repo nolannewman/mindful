@@ -314,7 +314,7 @@ export default function WatchPage({ params }: PageProps) {
           </section>
 
           <section className="card p-5">
-            <Link href="/" className="btn-ghost">← Back to Library</Link>
+            <Link href="/library" className="btn-ghost">← Back to Library</Link>
           </section>
         </aside>
       </div>

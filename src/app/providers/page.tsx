@@ -35,6 +35,11 @@ type ViewState =
   | { kind: 'ready'; providers: Provider[] }
   | { kind: 'error'; message: string };
 
+/** Always embed booking on /book; append provider when present. */
+function bookingHref(providerId?: number | null): string {
+  return `/book${providerId ? `?provider=${encodeURIComponent(String(providerId))}` : ''}`;
+}
+
 export default function ProvidersPage() {
   const [state, setState] = useState<ViewState>({ kind: 'loading' });
   const [query, setQuery] = useState('');
@@ -90,7 +95,7 @@ export default function ProvidersPage() {
           <p className="mt-2 text-sm text-[#E5E7EB]/80">Loading providers…</p>
         </section>
 
-        {/* Skeleton grid to keep the page lively while loading */}
+        {/* Skeleton grid */}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 mt-6">
           {[...Array(6)].map((_, i) => (
             <div key={i} className="card p-0 overflow-hidden">
@@ -128,7 +133,7 @@ export default function ProvidersPage() {
       <section className="rounded-2xl bg-[#0b1020] text-[#F9FAFB] px-6 py-8 hero-gradient hero-glow">
         <h1 className="text-3xl font-semibold tracking-tight">Providers</h1>
         <p className="mt-2 text-sm text-[#E5E7EB]/80">
-          Discover hypnotherapists and their specialties. Booking links prefer provider-specific Calendly when available.
+          Discover hypnotherapists and their specialties. All booking happens inside our site.
         </p>
 
         {/* Search */}
@@ -171,7 +176,7 @@ export default function ProvidersPage() {
               {/* Faux thumbnail header with topic pills & rate */}
               <div className="thumb-faux flex items-end justify-between px-4 pb-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  {(p.topics.slice(0, 2)).map((t) => (
+                  {p.topics.slice(0, 2).map((t) => (
                     <span key={t.id} className="pill pill-soft">
                       {t.name}
                     </span>
@@ -182,10 +187,7 @@ export default function ProvidersPage() {
                 </div>
 
                 {p.rate && (
-                  <span
-                    className="pill pill-gold"
-                    title="Session rate"
-                  >
+                  <span className="pill pill-gold" title="Session rate">
                     ${Number(p.rate).toFixed(2)}
                   </span>
                 )}
@@ -205,10 +207,7 @@ export default function ProvidersPage() {
                 {p.topics.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
                     {p.topics.map((t) => (
-                      <span
-                        key={t.id}
-                        className="pill pill-soft"
-                      >
+                      <span key={t.id} className="pill pill-soft">
                         {t.name}
                       </span>
                     ))}
@@ -217,15 +216,11 @@ export default function ProvidersPage() {
 
                 {/* Actions */}
                 <div className="mt-4 flex items-center gap-2">
-                  {/* Indigo primary for CTA */}
-                  <Link
-                    href={resolveBookingHref(p.calendly_url)}
-                    target={p.calendly_url ? '_blank' : undefined}
-                    className="btn-primary"
-                  >
+                  {/* Always go to embedded /book; pass provider when available */}
+                  <Link href={bookingHref(p.id)} className="btn-primary">
                     Book
                   </Link>
-                  {/* Gold as accent (ghost) */}
+
                   <Link
                     href={`/${encodeURIComponent(p.slug)}`}
                     className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-[#dbbe48] hover:bg-white/10 transition"
@@ -240,12 +235,4 @@ export default function ProvidersPage() {
       )}
     </main>
   );
-}
-
-function resolveBookingHref(providerCalendlyUrl: string | null): string {
-  // Prefer provider-specific Calendly; fallback to global dev URL; finally /book.
-  const globalDevCalendly = process.env.NEXT_PUBLIC_CALENDLY_URL || '';
-  return providerCalendlyUrl?.trim()
-    ? providerCalendlyUrl
-    : globalDevCalendly || '/book';
 }

@@ -15,11 +15,19 @@ function firstParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+// Treat common junk values from demo links as “no provider”
+function sanitizeProviderId(id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  const lower = id.toLowerCase();
+  if (lower === 'null' || lower === 'undefined' || lower === '') return undefined;
+  return id;
+}
+
 export default async function BookPage({ searchParams }: { searchParams: SearchParams }) {
-  const providerId = firstParam(searchParams?.provider);
+  const providerId = sanitizeProviderId(firstParam(searchParams?.provider));
   const url = await resolveCalendlyUrl(providerId);
 
-  // Embeddable Calendly URL
+  // Always embed Calendly; blend with dark theme
   const embedUrl =
     url +
     (url.includes('?') ? '&' : '?') +
@@ -36,10 +44,14 @@ export default async function BookPage({ searchParams }: { searchParams: SearchP
               Pick a time that works for you. Your confirmation and meeting link will arrive via email.
             </p>
             {providerId && (
-              <p className="mt-1 text-xs text-white/60">Booking for provider ID: <span className="font-mono">{providerId}</span></p>
+              <p className="mt-1 text-xs text-white/60">
+                Booking for provider ID:&nbsp;<span className="font-mono">{providerId}</span>
+              </p>
             )}
           </div>
+
           <div className="flex gap-2">
+            {/* Convenience link (embed is still primary) */}
             <a
               href={url}
               target="_blank"
@@ -50,32 +62,37 @@ export default async function BookPage({ searchParams }: { searchParams: SearchP
             >
               Open in new tab
             </a>
-            <Link href="/providers" className="btn-primary">Browse providers</Link>
+            <Link href="/providers" className="btn-primary">
+              Browse providers
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Embed */}
+      {/* Embedded Calendly */}
       <section className="mt-6">
         <div className="card overflow-hidden">
-          {/* Keep a comfortable min-height; iframe fills the container */}
-          <div className="w-full min-h-[760px]">
+          {/* Responsive height: min 760px, else fill viewport minus header space */}
+          <div
+            className="w-full"
+            style={{ height: 'max(760px, calc(100vh - 240px))' }}
+          >
             <iframe
               title="Calendly Scheduling"
               src={embedUrl}
               className="h-full w-full"
               loading="lazy"
+              allow="clipboard-read; clipboard-write"
               referrerPolicy="no-referrer-when-downgrade"
             />
           </div>
         </div>
 
         <p className="mt-3 text-xs text-gray-600 dark:text-gray-300">
-          By booking, you agree to Calendly’s terms. Sessions are provided by hypnotherapy professionals.
-          Sleep Trance does not provide medical care; for clinical concerns, consult a licensed provider.
+          Sessions are provided by hypnotherapy professionals. Sleep Trance does not provide medical care; for clinical
+          concerns, consult a licensed provider.
         </p>
 
-        {/* No-script fallback */}
         <noscript>
           <p className="mt-3 text-sm">
             JavaScript is required to embed Calendly. You can{' '}

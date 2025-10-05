@@ -46,11 +46,9 @@ function normalizeTopics(input: unknown): Topic[] {
   );
 }
 
-function resolveBookingHref(providerCalendlyUrl: string | null, providerId: number): string {
-  const globalDevCalendly = process.env.NEXT_PUBLIC_CALENDLY_URL || '';
-  return providerCalendlyUrl?.trim()
-    ? providerCalendlyUrl
-    : globalDevCalendly || `/book?provider=${encodeURIComponent(String(providerId))}`;
+/** Always embed booking inside our /book page with provider id */
+function bookingHref(providerId: number): string {
+  return `/book?provider=${encodeURIComponent(String(providerId))}`;
 }
 
 export default function ProviderDetailPage({ params }: { params: { slug: string } }) {
@@ -65,9 +63,7 @@ export default function ProviderDetailPage({ params }: { params: { slug: string 
         // Use maybeSingle() to avoid the array/row generic mismatch.
         const { data, error } = await supabase
           .from('provider_with_topics')
-          .select(
-            'id, slug, name, description, calendly_url, rate, created_at, topics'
-          )
+          .select('id, slug, name, description, calendly_url, rate, created_at, topics')
           .eq('slug', slug)
           .maybeSingle();
 
@@ -156,7 +152,7 @@ export default function ProviderDetailPage({ params }: { params: { slug: string 
 
   /* ---------- Ready ---------- */
   const { provider, videos } = state;
-  const bookHref = resolveBookingHref(provider.calendly_url, provider.id);
+  const bookHref = bookingHref(provider.id);
 
   return (
     <main className="container-page py-8">
@@ -181,15 +177,10 @@ export default function ProviderDetailPage({ params }: { params: { slug: string 
             {provider.rate && !Number.isNaN(Number(provider.rate)) && (
               <span className="pill pill-gold">${Number(provider.rate).toFixed(2)}</span>
             )}
-            <a
-              href={bookHref}
-              target={provider.calendly_url ? '_blank' : undefined}
-              rel={provider.calendly_url ? 'noopener noreferrer' : undefined}
-              className="btn-primary"
-            >
+            <Link href={bookHref} className="btn-primary">
               Book
-            </a>
-            <Link href="/(public)/library" className="btn-ghost">
+            </Link>
+            <Link href="/library" className="btn-ghost">
               Explore Library
             </Link>
           </div>

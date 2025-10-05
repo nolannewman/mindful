@@ -2,7 +2,6 @@
 'use client';
 
 import './globals.css';
-import type { Metadata } from 'next';
 import { useEffect, type ReactNode } from 'react';
 import NavBar from '@/../components/NavBar';
 import { supabase } from '@/../lib/supabase';

@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 
 // Only touch auth gating; do not change other app behavior.
 const PROTECTED_PREFIXES = ['/dashboard', '/upload', '/(authed)'];
+const AUTH_PAGES = new Set(['/login', '/sign-in', '/sign-up']);
 
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
@@ -31,7 +32,8 @@ export async function middleware(req: NextRequest) {
           res.cookies.set({ name, value, ...options });
         },
         remove: (name, options) => {
-          res.cookies.set({ name, value: '', ...options });
+          // Ensure removal persists in the browser
+          res.cookies.set({ name, value: '', ...options, maxAge: 0 });
         },
       },
     }
@@ -40,22 +42,30 @@ export async function middleware(req: NextRequest) {
   const isProtected = PROTECTED_PREFIXES.some((prefix) =>
     pathname.startsWith(prefix)
   );
+  const isAuthPage = AUTH_PAGES.has(pathname);
 
-  // Try to read/refresh the session
+  // Try to read/refresh the session (will also propagate any refreshed cookies to `res`)
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // If authenticated, prevent access to auth pages
+  if (user && isAuthPage) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/dashboard';
+    url.search = '';
+    return NextResponse.redirect(url);
+  }
+
+  // If not authenticated, block protected routes and preserve intended destination
   if (isProtected && !user) {
-    // ✅ Build the redirect using the actual request origin (no localhost fallback).
-    // This fixes being sent to http://localhost on Vercel.
     const redirectedFrom = `${pathname}${search}`;
     const loginUrl = new URL('/login', req.url);
     loginUrl.searchParams.set('redirectedFrom', redirectedFrom);
     return NextResponse.redirect(loginUrl);
   }
 
-  // Authenticated — continue with refreshed cookies if any
+  // Authenticated or public — continue with refreshed cookies if any
   return res;
 }
 
@@ -64,5 +74,12 @@ export async function middleware(req: NextRequest) {
  * Important: The matcher operates on URL paths (not filesystem segment names).
  */
 export const config = {
-  matcher: ['/dashboard/:path*', '/upload/:path*', '/(authed)/:path*'],
+  matcher: [
+    '/dashboard/:path*',
+    '/upload/:path*',
+    '/(authed)/:path*',
+    '/login',
+    '/sign-in',
+    '/sign-up',
+  ],
 };

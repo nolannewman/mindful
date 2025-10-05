@@ -59,7 +59,7 @@ export default function NavBar() {
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
         <div className="flex items-center gap-6">
           <Link href="/" className="font-semibold">
-            Sleep Hypnosis
+            Sleep Trance
           </Link>
 
           <nav aria-label="Primary" className="flex items-center gap-4">

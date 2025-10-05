@@ -1,72 +1,81 @@
-// path: src/app/login/page.tsx
+// path: src/app/(auth)/login/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/../lib/supabase';
 
 /**
- * This version ensures magic-link emails from Supabase always point to
- * the correct domain.
- *
- * - On Vercel (Preview/Production): uses https://${VERCEL_URL}
- * - On localhost: uses http://localhost:3000
- * 
- * Vercel automatically injects process.env.VERCEL_URL at build/deploy time.
+ * Build an ABSOLUTE redirect URL for Supabase emails / OAuth.
+ * - On Vercel: uses https://${process.env.VERCEL_URL}
+ * - Else (dev): uses window.location.origin (localhost)
+ * Always returns an absolute URL with a path suffix.
  */
-
-function getRedirectUrl(): string {
-  // Vercel provides the domain in VERCEL_URL (no protocol)
+function buildRedirectTo(path: string): string {
   const vercel = process.env.VERCEL_URL;
-  if (vercel) {
-    return `https://${vercel}/`;
-  }
-
-  // Local development fallback
-  if (typeof window !== 'undefined' && window.location.origin.includes('localhost')) {
-    return `${window.location.origin}/`;
-  }
-
-  // Safe default
-  return 'http://localhost:3000/';
+  const base = vercel
+    ? `https://${vercel}` // Vercel gives bare domain without protocol
+    : (typeof window !== 'undefined' && window.location?.origin)
+      ? window.location.origin
+      : 'http://localhost:3000';
+  const cleanBase = base.replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${cleanBase}${cleanPath}`;
 }
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  const onSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
+  // Always absolute; never relative.
+  const redirectTo = useMemo(() => buildRedirectTo('/auth/callback'), []);
+
+  async function signInWithEmail(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    setSent(false);
-    setSending(true);
+    setBusy(true);
+    setMsg(null);
+    setErr(null);
 
     try {
-      const redirectTo = getRedirectUrl();
-
-      const { error: authError } = await supabase.auth.signInWithOtp({
+      const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { emailRedirectTo: redirectTo },
       });
-
-      if (authError) throw new Error(authError.message);
-
-      setSent(true);
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : 'Failed to send magic link.';
-      setError(message);
+      if (error) throw new Error(error.message);
+      setMsg('Check your inbox for a sign-in link.');
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unable to send magic link';
+      setErr(message);
     } finally {
-      setSending(false);
+      setBusy(false);
     }
-  };
+  }
+
+  async function signInWithGoogle() {
+    setBusy(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo },
+      });
+      if (error) throw new Error(error.message);
+      // Supabase will redirect to the provider; nothing to do here.
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unable to start Google sign-in';
+      setErr(message);
+      setBusy(false);
+    }
+  }
 
   return (
     <main className="max-w-md mx-auto p-6" aria-labelledby="login-title">
       <h1 id="login-title" className="text-2xl font-semibold">Sign in</h1>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-4">
+      <form onSubmit={signInWithEmail} className="mt-6 space-y-4">
         <label className="block">
           <span className="text-sm font-medium">Email</span>
           <input
@@ -82,28 +91,41 @@ export default function LoginPage() {
 
         <button
           type="submit"
-          disabled={!email || sending}
-          className="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
+          disabled={!email || busy}
+          className="w-full rounded bg-black text-white px-4 py-2 disabled:opacity-50"
         >
-          {sending ? 'Sending…' : 'Send magic link'}
+          {busy ? 'Sending…' : 'Send magic link'}
         </button>
-
-        {error && (
-          <div role="alert" className="rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm">
-            {error}
-          </div>
-        )}
-
-        {sent && (
-          <div role="status" className="rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm">
-            Check your inbox for a magic link.
-          </div>
-        )}
-
-        <p className="text-xs text-gray-600 mt-3">
-          Redirect base: <code className="font-mono">{getRedirectUrl()}</code>
-        </p>
       </form>
+
+      <div className="mt-6">
+        <button
+          type="button"
+          onClick={signInWithGoogle}
+          disabled={busy}
+          className="w-full rounded border px-4 py-2 disabled:opacity-50"
+        >
+          Continue with Google
+        </button>
+      </div>
+
+      {msg && (
+        <div role="status" className="mt-4 rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm">
+          {msg}
+        </div>
+      )}
+      {err && (
+        <div role="alert" className="mt-4 rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm">
+          {err}
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-gray-600">
+        Redirect: <code className="font-mono">{redirectTo}</code>
+      </p>
+      <p className="mt-1 text-xs text-gray-600">
+        Ensure this URL is added in Supabase → Authentication → Redirect URLs.
+      </p>
     </main>
   );
 }

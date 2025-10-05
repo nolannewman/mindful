@@ -55,35 +55,27 @@ export default function NavBar() {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-white/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
+    <header className="border-b border-white/10 bg-white/70 dark:bg-black/30 backdrop-blur-md sticky top-0 z-40">
+      <div className="container-page py-3 flex h-14 items-center justify-between">
         <div className="flex items-center gap-6">
-          <Link href="/" className="font-semibold">
+          <Link href="/" className="text-lg font-semibold tracking-tight hover:opacity-90">
             Sleep Trance
           </Link>
 
-          <nav aria-label="Primary" className="flex items-center gap-4">
+          <nav aria-label="Primary" className="flex items-center gap-1 sm:gap-3">
             <Link
               href="/library"
-              className={linkCls(isActive('/library'))}
+              className={`px-3 py-2 rounded-lg text-sm hover:bg-indigo-50 dark:hover:bg-white/10 transition ${linkCls(isActive('/library'))}`}
               aria-current={isActive('/library') ? 'page' : undefined}
             >
               Library
             </Link>
             <Link
               href="/providers"
-              className={linkCls(isActive('/providers'))}
+              className={`px-3 py-2 rounded-lg text-sm hover:bg-indigo-50 dark:hover:bg-white/10 transition ${linkCls(isActive('/providers'))}`}
               aria-current={isActive('/providers') ? 'page' : undefined}
             >
               Providers
-            </Link>
-            {/* Demo → Dashboard (clean URL; not the file tree segment) */}
-            <Link
-              href="/dashboard"
-              className={linkCls(isActive('/dashboard'))}
-              aria-current={isActive('/dashboard') ? 'page' : undefined}
-            >
-              Demo
             </Link>
           </nav>
         </div>
@@ -96,20 +88,14 @@ export default function NavBar() {
           )}
 
           {auth.kind === 'anon' && (
-            <Link
-              href="/login"
-              className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
-            >
+            <Link href="/login" className="btn-primary">
               Sign up / Log in
             </Link>
           )}
 
           {auth.kind === 'authed' && (
             <>
-              <Link
-                href="/dashboard"
-                className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
-              >
+              <Link href="/dashboard" className="btn-ghost">
                 Dashboard
               </Link>
               <form
@@ -121,7 +107,7 @@ export default function NavBar() {
               >
                 <button
                   type="submit"
-                  className="rounded border px-3 py-1.5 text-sm hover:bg-gray-50"
+                  className="btn-ghost"
                   aria-label="Sign out"
                 >
                   Sign out
@@ -138,7 +124,7 @@ export default function NavBar() {
 function linkCls(active: boolean) {
   return [
     'text-sm',
-    'hover:underline',
-    active ? 'font-medium underline' : 'text-gray-700',
+    active ? 'font-semibold text-indigo-700 dark:text-indigo-300'
+           : 'text-gray-700 dark:text-gray-200',
   ].join(' ');
 }

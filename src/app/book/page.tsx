@@ -1,6 +1,6 @@
 // app/book/page.tsx
 import type { Metadata } from 'next'
-import resolveCalendlyUrl from '@/../lib/booking'
+import resolveCalendlyUrl from '@/lib/booking'
 
 export const metadata: Metadata = {
   title: 'Book a session',

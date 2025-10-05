@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { supabase } from '@/../lib/supabase/client';
+import { supabase } from '@/lib/supabase/client';
 
 type AuthState =
   | { kind: 'loading' }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/../lib/supabase/client';
+import { supabase } from '@/lib/supabase/client';
 
 function safeRedirect(raw: string | null): string {
   if (typeof window === 'undefined') return '/dashboard';

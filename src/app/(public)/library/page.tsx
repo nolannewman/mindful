@@ -10,7 +10,7 @@ import {
   type Topic,
   type Provider,
   type VideoListItem,
-} from '../../../../lib/catalog';
+} from '../../../lib/catalog';
 
 function LibraryInner() {
   const router = useRouter();

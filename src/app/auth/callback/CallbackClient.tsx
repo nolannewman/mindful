@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/../lib/supabase/client';
+import { supabase } from '@/lib/supabase/client';
 
 function safeRedirect(raw: string | null | undefined): string {
   if (!raw || typeof window === 'undefined') return '/dashboard';

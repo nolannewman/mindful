@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 // If NO tsconfig path alias:
 // import { supabase } from '../../../../lib/supabase/client';
-import { supabase } from '@/../lib/supabase/client';
+import { supabase } from '@/lib/supabase/client';
 
 export default function AuthedLayout({ children }: { children: React.ReactNode }) {
   const [ok, setOk] = useState<boolean | null>(null);

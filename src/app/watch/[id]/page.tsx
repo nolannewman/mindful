@@ -3,8 +3,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { getVideo } from '@/../lib/catalog';
-import { getSignedUrl } from '@/../lib/storage';
+import { getVideo } from '@/lib/catalog';
+import { getSignedUrl } from '@/lib/storage';
 
 type MediaProvider = 'YOUTUBE' | 'VIMEO' | 'FILE' | 'AUDIO';
 

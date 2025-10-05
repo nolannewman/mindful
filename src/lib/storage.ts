@@ -54,15 +54,13 @@ export async function uploadMedia(
       .upload(objectPath, file, {
         upsert: false,
         cacheControl: '3600',
+        contentType: file.type || 'application/octet-stream', // ensure correct playback
       });
 
-    if (error) {
-      return { ok: false, error: error.message };
-    }
+    if (error) return { ok: false, error: error.message };
     return { ok: true, path: `${bucket}/${objectPath}` };
   } catch (e: unknown) {
-    const msg =
-      e instanceof Error ? e.message : 'Unknown error uploading media';
+    const msg = e instanceof Error ? e.message : 'Unknown error uploading media';
     return { ok: false, error: msg };
   }
 }

@@ -4,7 +4,7 @@
 import './globals.css';
 import { useEffect, type ReactNode } from 'react';
 import NavBar from '@/../components/NavBar';
-import { supabase } from '@/../lib/supabase/client';
+import { supabase } from '@/lib/supabase/client';
 
 /**
  * Root-level session bootstrap.

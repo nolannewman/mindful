@@ -1,119 +1,109 @@
-// path: app/login/page.tsx
+// path: src/app/login/page.tsx
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { supabase } from '@/../lib/supabase';
 
-function getSiteOrigin(): string {
-  // Prefer explicit env in case you render without window at any point
-  const envUrl = (process.env.NEXT_PUBLIC_SITE_URL || '').trim();
-  if (envUrl) return envUrl.replace(/\/+$/, '');
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
+/**
+ * This version ensures magic-link emails from Supabase always point to
+ * the correct domain.
+ *
+ * - On Vercel (Preview/Production): uses https://${VERCEL_URL}
+ * - On localhost: uses http://localhost:3000
+ * 
+ * Vercel automatically injects process.env.VERCEL_URL at build/deploy time.
+ */
+
+function getRedirectUrl(): string {
+  // Vercel provides the domain in VERCEL_URL (no protocol)
+  const vercel = process.env.VERCEL_URL;
+  if (vercel) {
+    return `https://${vercel}/`;
   }
-  // Fallback to empty; we will still use a relative path in worst case.
-  return '';
+
+  // Local development fallback
+  if (typeof window !== 'undefined' && window.location.origin.includes('localhost')) {
+    return `${window.location.origin}/`;
+  }
+
+  // Safe default
+  return 'http://localhost:3000/';
 }
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
 
-  // ✅ Build the callback dynamically (never hardcode localhost)
-  const redirectTo = useMemo(() => {
-    const base = getSiteOrigin(); // e.g. https://your-vercel-domain.vercel.app
-    const path = '/auth/callback';
-    return base ? `${base}${path}` : path; // relative path is fine in browser
-  }, []);
-
-  async function signInWithGoogle() {
-    setBusy(true);
-    setMsg(null);
-    setErr(null);
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo, // e.g. https://your-domain/auth/callback (or relative)
-        },
-      });
-      if (error) throw error;
-      // Supabase will redirect; nothing else to do here.
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Unable to start Google sign-in');
-      setBusy(false);
-    }
-  }
-
-  async function signInEmail(e: React.FormEvent) {
+  const onSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
     e.preventDefault();
-    setBusy(true);
-    setMsg(null);
-    setErr(null);
+    setError(null);
+    setSent(false);
+    setSending(true);
+
     try {
-      const { error } = await supabase.auth.signInWithOtp({
+      const redirectTo = getRedirectUrl();
+
+      const { error: authError } = await supabase.auth.signInWithOtp({
         email,
-        options: {
-          emailRedirectTo: redirectTo,
-        },
+        options: { emailRedirectTo: redirectTo },
       });
-      if (error) throw error;
-      setMsg('Check your email for the sign-in link.');
-    } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Unable to send magic link');
+
+      if (authError) throw new Error(authError.message);
+
+      setSent(true);
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to send magic link.';
+      setError(message);
     } finally {
-      setBusy(false);
+      setSending(false);
     }
-  }
+  };
 
   return (
-    <main className="mx-auto max-w-md px-4 py-12">
-      <h1 className="text-2xl font-semibold">Log in</h1>
-      <p className="mt-2 text-sm text-gray-500">
-        Sign in with Google or get a magic link via email.
-      </p>
+    <main className="max-w-md mx-auto p-6" aria-labelledby="login-title">
+      <h1 id="login-title" className="text-2xl font-semibold">Sign in</h1>
 
-      <div className="mt-8 space-y-6">
-        <button
-          onClick={signInWithGoogle}
-          disabled={busy}
-          className="w-full rounded bg-black px-4 py-2 text-white disabled:opacity-50"
-        >
-          {busy ? 'Redirecting…' : 'Continue with Google'}
-        </button>
-
-        <form onSubmit={signInEmail} className="space-y-3">
-          <label className="block text-sm font-medium">Email</label>
+      <form onSubmit={onSubmit} className="mt-6 space-y-4">
+        <label className="block">
+          <span className="text-sm font-medium">Email</span>
           <input
             type="email"
-            className="w-full rounded border px-3 py-2"
+            required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            className="mt-2 block w-full rounded border p-2"
             placeholder="you@example.com"
-            required
+            autoComplete="email"
           />
-          <button
-            type="submit"
-            disabled={busy || !email}
-            className="w-full rounded border px-3 py-2"
-          >
-            {busy ? 'Sending…' : 'Send magic link'}
-          </button>
-        </form>
+        </label>
 
-        {msg && <div className="text-green-700 text-sm">{msg}</div>}
-        {err && (
-          <div role="alert" className="text-red-600 text-sm">
-            {err}
+        <button
+          type="submit"
+          disabled={!email || sending}
+          className="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
+        >
+          {sending ? 'Sending…' : 'Send magic link'}
+        </button>
+
+        {error && (
+          <div role="alert" className="rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm">
+            {error}
           </div>
         )}
 
-        <div className="text-xs text-gray-500">
-          Callback URL:&nbsp;<code>{redirectTo}</code>
-        </div>
-      </div>
+        {sent && (
+          <div role="status" className="rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm">
+            Check your inbox for a magic link.
+          </div>
+        )}
+
+        <p className="text-xs text-gray-600 mt-3">
+          Redirect base: <code className="font-mono">{getRedirectUrl()}</code>
+        </p>
+      </form>
     </main>
   );
 }

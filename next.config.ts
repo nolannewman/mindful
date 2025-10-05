@@ -14,9 +14,9 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
               "img-src 'self' data: https://i.ytimg.com https://*.supabase.co",
-              // IMPORTANT: allow YouTube/Vimeo/Calendly frames
+              // Allow YouTube/Vimeo/Calendly iframes
               "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://calendly.com https://*.calendly.com",
-              "media-src 'self' blob:",
+              "media-src 'self' blob: data: https://*.supabase.co https://*.supabase.in",
             ].join('; ')
           }
         ]
@@ -26,4 +26,3 @@ const nextConfig = {
 };
 
 module.exports = nextConfig;
-

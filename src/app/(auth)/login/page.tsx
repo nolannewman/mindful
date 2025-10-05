@@ -1,86 +1,78 @@
-// path: src/app/(auth)/login/page.tsx
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/../lib/supabase';
-
-function buildRedirectTo(path: string = '/'): string {
-  const base =
-    typeof window !== 'undefined' && window.location.origin
-      ? window.location.origin
-      : (process.env.NEXT_PUBLIC_AUTH_URL || 'http://localhost:3000');
-
-  const cleanBase = base.replace(/\/+$/, '');
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${cleanBase}${cleanPath}`;
-}
+import { supabase } from '@/../lib/supabase/client';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  // Standardize on `redirectedFrom`
-  const redirectTo = buildRedirectTo('/auth/callback?redirectedFrom=/dashboard');
-
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setSent(false);
-    setSending(true);
+    setBusy(true);
+    setErr(null);
 
-    try {
-      const { error: authError } = await supabase.auth.signInWithOtp({
-        email,
-        options: { emailRedirectTo: redirectTo },
-      });
-      if (authError) throw new Error(authError.message);
-      setSent(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send magic link');
-    } finally {
-      setSending(false);
-    }
-  }
+    // Read ?redirect=… without the Next hook to avoid the Suspense requirement
+    const sp =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search)
+        : null;
+    const redirect = sp?.get('redirect') ?? '/dashboard';
+
+    const emailRedirectTo = `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(
+      redirect
+    )}`;
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo,      // magic link lands here
+        shouldCreateUser: true,
+      },
+    });
+
+    setBusy(false);
+    if (error) { setErr(error.message); return; }
+    setSent(true);
+  };
 
   return (
-    <main className="max-w-md mx-auto p-6" aria-labelledby="login-title">
-      <h1 id="login-title" className="text-2xl font-semibold">Sign in</h1>
+    <main className="mx-auto max-w-sm p-6">
+      <h1 className="text-xl font-semibold mb-4">Sign in with a magic link</h1>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-4">
-        <label className="block">
-          <span className="text-sm font-medium">Email</span>
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mt-2 block w-full rounded border p-2"
-            placeholder="you@example.com"
-            autoComplete="email"
-          />
-        </label>
-
-        <button
-          type="submit"
-          disabled={!email || sending}
-          className="w-full rounded bg-black text-white px-4 py-2 disabled:opacity-50"
-        >
-          {sending ? 'Sending…' : 'Send magic link'}
-        </button>
-      </form>
-
-      {error && (
-        <div role="alert" className="mt-4 rounded border border-red-300 bg-red-50 text-red-700 p-3 text-sm">
-          {error}
+      {sent ? (
+        <div className="space-y-3">
+          <p>
+            We sent a sign-in link to <strong>{email}</strong>. Open it on this device.
+          </p>
+          <button className="rounded px-3 py-2 border" onClick={() => setSent(false)}>
+            Use a different email
+          </button>
         </div>
+      ) : (
+        <form onSubmit={onSubmit} className="space-y-3">
+          <label className="block">
+            <span>Email</span>
+            <input
+              className="w-full rounded border px-3 py-2"
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </label>
+          {err && <p className="text-red-600 text-sm">{err}</p>}
+          <button type="submit" disabled={busy} className="w-full rounded px-4 py-2 border">
+            {busy ? 'Sending…' : 'Send magic link'}
+          </button>
+        </form>
       )}
-      {sent && !error && (
-        <div role="status" className="mt-4 rounded border border-green-300 bg-green-50 text-green-700 p-3 text-sm">
-          Check your inbox for a magic link.
-        </div>
-      )}
+
+      <p className="mt-4 text-sm opacity-80">
+        Tip: keep this tab open and open the email on the same device.
+      </p>
     </main>
   );
 }

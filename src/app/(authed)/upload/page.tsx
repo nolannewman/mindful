@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/../lib/supabase';
+import { supabase } from '@/../lib/supabase/client';
 import { uploadMedia } from '@/../lib/storage';
 
 type Topic = { id: number; name: string };

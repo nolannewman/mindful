@@ -4,7 +4,7 @@
  * Catalog data helpers for topics, providers, and videos (client-side Supabase).
  * Lean selects, minimal return types, graceful empty/error handling.
  */
-import { supabase } from './supabase'; // keep as-is to match your current export style
+import { supabase } from './supabase/client'; // keep as-is to match your current export style
 
 // Minimal types (no `any`).
 export type Topic = {

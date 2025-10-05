@@ -1,5 +1,5 @@
 // path: src/lib/storage.ts
-import { supabase } from './supabase';
+import { supabase } from './supabase/client';
 
 /**
  * Returns a signed URL for a given Supabase Storage path.

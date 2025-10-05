@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/../lib/supabase';
+import { supabase } from '@/../lib/supabase/client';
 
 /**
  * Types that mirror your SQL view `public.provider_with_topics`

@@ -1,5 +1,5 @@
 // path: lib/auth.ts
-import { supabase } from './supabase';
+import { supabase } from './supabase/client';
 
 export type MinimalUser = {
   id: string;

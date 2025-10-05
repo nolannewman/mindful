@@ -1,13 +1,13 @@
-/* path: src/app/globals.css */
 @import "tailwindcss";
 
 /* ------------------------------
    Design Tokens
+   (Dark Mode Always)
 ------------------------------ */
 :root {
   /* Base */
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a;
+  --foreground: #ededed;
 
   /* Brand */
   --brand-50:  #eef2ff;
@@ -25,7 +25,7 @@
   --gold: #dbbe48;
 
   /* UI */
-  --muted: #6b7280;     /* gray-500 */
+  --muted: #9ca3af;     /* gray-400 for better contrast */
   --surface: #0b1020;   /* deep navy for hero backgrounds */
 
   /* Radii */
@@ -41,19 +41,9 @@
   --color-brand-500: var(--brand-500);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-/* ------------------------------
-   Base
------------------------------- */
-* { -webkit-tap-highlight-color: transparent; }
-html, body { height: 100%; }
-body {
+/* Remove media query completely since dark is default */
+html, body {
+  height: 100%;
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI,
@@ -61,13 +51,14 @@ body {
     "Segoe UI Emoji", "Segoe UI Symbol";
 }
 
-/* Smoother focus outlines by default */
+* { -webkit-tap-highlight-color: transparent; }
+
+/* Focus ring */
 :focus-visible {
   outline: 2px solid rgba(99, 102, 241, 0.5);
   outline-offset: 2px;
 }
 
-/* Links inherit color until hovered (lets us style via utilities) */
 a { color: inherit; text-decoration: none; }
 a:hover { text-decoration: none; }
 
@@ -98,7 +89,7 @@ a:hover { text-decoration: none; }
     radial-gradient(45% 35% at 80% 10%, rgba(219,190,72,0.18), transparent 60%);
   filter: blur(20px);
   animation: glowFloat 12s ease-in-out infinite alternate;
-  pointer-events: none; /* don’t block clicks */
+  pointer-events: none;
 }
 @keyframes glowFloat {
   from { transform: translate3d(-2%, -1%, 0) rotate(-1deg); opacity: .9; }
@@ -106,12 +97,12 @@ a:hover { text-decoration: none; }
 }
 
 .card {
-  @apply border border-white/10 bg-white/60 dark:bg-white/5 backdrop-blur-sm shadow-sm;
+  @apply border border-white/10 bg-white/5 backdrop-blur-sm shadow-sm;
   border-radius: var(--r-card);
 }
 
 /* ------------------------------
-   Interactive Cards (click-safe)
+   Interactive Cards
 ------------------------------ */
 .card-hover {
   position: relative;
@@ -119,7 +110,7 @@ a:hover { text-decoration: none; }
 }
 .card-hover:hover {
   transform: translateY(-3px);
-  box-shadow: 0 10px 30px -15px rgba(0,0,0,.4);
+  box-shadow: 0 10px 30px -15px rgba(0,0,0,.6);
 }
 .card-hover::after {
   content: "";
@@ -129,14 +120,12 @@ a:hover { text-decoration: none; }
   background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.06), transparent 70%);
   opacity: 0;
   transition: opacity .2s ease;
-  pointer-events: none; /* ← critical: allow clicks through overlay */
-  z-index: 0;          /* keep overlay behind */
+  pointer-events: none;
+  z-index: 0;
 }
-/* Ensure actual content sits above the shine */
 .card-hover > * { position: relative; z-index: 1; }
 .card-hover:hover::after { opacity: 1; }
 
-/* Faux thumbnail header for cards */
 .thumb-faux {
   height: 110px;
   border-radius: calc(var(--r-card) - 2px);
@@ -146,23 +135,21 @@ a:hover { text-decoration: none; }
 }
 
 /* ------------------------------
-   Controls: Buttons / Inputs
+   Buttons / Inputs
 ------------------------------ */
 .btn-primary {
   @apply inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
          text-white bg-indigo-600 hover:bg-indigo-500
          focus:outline-none focus:ring-2 focus:ring-indigo-400/60
-         focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-transparent
+         focus:ring-offset-2 focus:ring-offset-transparent
          transition;
 }
 
 .btn-ghost {
   @apply inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm
-         text-indigo-700 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-white/10
-         transition;
+         text-indigo-300 hover:bg-white/10 transition;
 }
 
-/* Unified input/select styling used on Library & Providers */
 .input, .select {
   @apply w-full rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm
          placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-indigo-400/40;
@@ -181,13 +168,10 @@ a:hover { text-decoration: none; }
 .pill-gold { border: 1px solid var(--gold); color: var(--gold); background: transparent; }
 
 /* ------------------------------
-   Typography helpers
+   Typography & Skeletons
 ------------------------------ */
 .muted { color: var(--muted); }
 
-/* ------------------------------
-   Skeletons
------------------------------- */
 .skeleton {
   position: relative;
   overflow: hidden;
